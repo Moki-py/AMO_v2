@@ -1,0 +1,512 @@
+[
+  {
+    "timestamp": "2025-04-14T16:36:07.510645",
+    "component": "storage",
+    "level": "info",
+    "message": "Initialized empty file: data/deals.json"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:07.511010",
+    "component": "storage",
+    "level": "info",
+    "message": "Initialized empty file: data/contacts.json"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:07.511315",
+    "component": "storage",
+    "level": "info",
+    "message": "Initialized empty file: data/companies.json"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:07.511649",
+    "component": "storage",
+    "level": "info",
+    "message": "Initialized empty file: data/events.json"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:07.511970",
+    "component": "storage",
+    "level": "info",
+    "message": "Initialized empty file: data/log.json"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:07.514640",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T16:36:47.887581",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:20.656726",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.561261",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of deals"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.832073",
+    "component": "auth",
+    "level": "warning",
+    "message": "No long-term token available"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.832925",
+    "component": "auth",
+    "level": "warning",
+    "message": "No long-term token available"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.833416",
+    "component": "auth",
+    "level": "warning",
+    "message": "No long-term token available"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.833869",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: No access token available. Please set LONGTERM_TOKEN in the .env file."
+  },
+  {
+    "timestamp": "2025-04-14T16:37:25.834314",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:38.643288",
+    "component": "server",
+    "level": "error",
+    "message": "Failed to import psutil for stopping processes"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:38.661777",
+    "component": "server",
+    "level": "error",
+    "message": "Failed to import psutil for stopping processes"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:38.663977",
+    "component": "server",
+    "level": "error",
+    "message": "Failed to import psutil for stopping processes"
+  },
+  {
+    "timestamp": "2025-04-14T16:37:39.769883",
+    "component": "server",
+    "level": "error",
+    "message": "Failed to import psutil for stopping processes"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:17.034649",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:19.151300",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.128542",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.384326",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.385691",
+    "component": "auth",
+    "level": "info",
+    "message": "Created token data from long-term token"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.386596",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.785446",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T16:39:24.789023",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:05.759096",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:07.930510",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:11.784940",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of contacts"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:12.024291",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:12.025926",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:12.475514",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 402 Client Error: Payment Required for url: https://api.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:12.479749",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T16:40:18.265503",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:02.058205",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:18.278379",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:18.509889",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:18.511983",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:18.992292",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:18.993370",
+    "component": "auth",
+    "level": "error",
+    "message": "No refresh token available, falling back to long-term token"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:19.313484",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging long-term token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:19.314813",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: Failed to exchange long-term token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T17:35:19.319103",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T17:36:26.227553",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:36.503784",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.300967",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.600735",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.601837",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.956384",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.958588",
+    "component": "auth",
+    "level": "error",
+    "message": "No refresh token available, trying to get new tokens with authorization code"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.959924",
+    "component": "auth",
+    "level": "error",
+    "message": "Missing OAuth2 credentials in config"
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.961643",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: Missing OAuth2 credentials. Please set CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, and AUTHORIZATION_CODE in the .env file."
+  },
+  {
+    "timestamp": "2025-04-14T18:38:40.966802",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:32.498811",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:34.612751",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:39.065400",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:39.376814",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:39.378155",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:39.697932",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:39.700252",
+    "component": "auth",
+    "level": "error",
+    "message": "No refresh token available, trying to get new tokens with authorization code"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:40.413195",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:40.415293",
+    "component": "auth",
+    "level": "info",
+    "message": "Successfully exchanged authorization code for access and refresh tokens"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:40.593023",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T18:41:40.598458",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T18:42:59.047214",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:25.157485",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:28.414602",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:28.675809",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:28.677382",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:29.072788",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:29.806235",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:29.808773",
+    "component": "auth",
+    "level": "info",
+    "message": "Successfully refreshed access token"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:30.037585",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T18:43:30.045587",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:28.092216",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:30.424177",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:46.759261",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:47.366875",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:47.370321",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:47.723546",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:48.573759",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:48.576293",
+    "component": "auth",
+    "level": "info",
+    "message": "Successfully refreshed access token"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:48.795018",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:48.802524",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T19:23:53.794604",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  }
+]
