@@ -508,5 +508,281 @@
     "component": "server",
     "level": "info",
     "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:00.154262",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:03.636676",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:04.408105",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:04.409764",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:04.735395",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:05.736109",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:05.738511",
+    "component": "auth",
+    "level": "info",
+    "message": "Successfully refreshed access token"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:06.008417",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:06.019229",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:36.432617",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:41.712710",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:45.523555",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:45.833296",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:45.835097",
+    "component": "auth",
+    "level": "info",
+    "message": "Loaded token from file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:46.038440",
+    "component": "auth",
+    "level": "error",
+    "message": "Token validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:46.780907",
+    "component": "auth",
+    "level": "info",
+    "message": "Token saved to file"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:46.783615",
+    "component": "auth",
+    "level": "info",
+    "message": "Successfully refreshed access token"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:47.022113",
+    "component": "auth",
+    "level": "error",
+    "message": "Token refresh and validation failed: 401 Client Error: Not Authorized for url: https://api-a.amocrm.ru/api/v4/account"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:47.033942",
+    "component": "main",
+    "level": "error",
+    "message": "Token validation failed. Please check your LONGTERM_TOKEN in .env"
+  },
+  {
+    "timestamp": "2025-04-14T19:54:54.465739",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:32.708797",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:32.712175",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:32.898168",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:49.141794",
+    "component": "server",
+    "level": "info",
+    "message": "Starting modern UI server on http://localhost:8000"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:52.078645",
+    "component": "server",
+    "level": "info",
+    "message": "Started export of companies"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:52.508534",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:52.512012",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:55:52.696499",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:56:09.544463",
+    "component": "server",
+    "level": "info",
+    "message": "Server stopped"
+  },
+  {
+    "timestamp": "2025-04-14T19:58:00.334171",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:58:00.339105",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T19:58:00.544615",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:03:52.409243",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:03:52.413263",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:03:52.669689",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:10:12.050781",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:10:12.053824",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:10:12.254515",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:12:41.169740",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:12:41.174644",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:12:41.349897",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:21:30.235996",
+    "component": "auth",
+    "level": "info",
+    "message": "Using LONG_TERM_TOKEN to get access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:21:30.444217",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:21:30.447697",
+    "component": "auth",
+    "level": "error",
+    "message": "Error loading token: Failed to exchange token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:21:30.449993",
+    "component": "auth",
+    "level": "info",
+    "message": "Using LONG_TERM_TOKEN to get access_token"
+  },
+  {
+    "timestamp": "2025-04-14T20:21:30.643370",
+    "component": "auth",
+    "level": "error",
+    "message": "Error exchanging token: 400 Client Error: Bad Request for url: https://wecheap.amocrm.ru/oauth2/access_token"
   }
 ]

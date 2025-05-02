@@ -532,3 +532,43 @@ class UIServer:
             # Log startup
             log_event('ui', 'info', f'Starting UI server on http://{self.host}:{self.port}')
             print(f"UI server started on http://{self.host}:{self.port}")
+            # Open browser if available
+            if self.host in ['0.0.0.0', 'localhost', '127.0.0.1']:
+                try:
+                    webbrowser.open(f"http://localhost:{self.port}")
+                except:
+                    pass
+
+            # Start the server in a separate thread
+            self.thread = threading.Thread(target=self.server.serve_forever)
+            self.thread.daemon = True
+            self.thread.start()
+
+            return True
+        except Exception as e:
+            log_event('ui', 'error', f'Error starting UI server: {e}')
+            print(f"Error starting UI server: {e}")
+            return False
+
+    def stop(self):
+        """Stop the UI server"""
+        if self.server:
+            try:
+                self.server.shutdown()
+                self.server.server_close()
+                log_event('ui', 'info', 'UI server stopped')
+                print("UI server stopped")
+                return True
+            except Exception as e:
+                log_event('ui', 'error', f'Error stopping UI server: {e}')
+                print(f"Error stopping UI server: {e}")
+                return False
+        return False
+
+def run_ui_server(host='0.0.0.0', port=8000):
+    """Run the UI server"""
+    server = UIServer(host, port)
+    return server.start()
+
+if __name__ == "__main__":
+    run_ui_server()

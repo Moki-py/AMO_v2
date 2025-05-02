@@ -9,15 +9,15 @@ dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 
 # AmoCRM OAuth2 credentials
-AUTHORIZATION_CODE = os.getenv('AUTHORIZATION_CODE')  # Код авторизации вместо long-term token
+AUTHORIZATION_CODE = os.getenv('AUTHORIZATION_CODE')
 CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 
-# AmoCRM domain
-AMOCRM_DOMAIN = os.getenv('AMOCRM_DOMAIN', 'wecheap.amocrm.ru')
+# AmoCRM domain - используем wecheap.amocrm.ru как домен аккаунта
+AMOCRM_DOMAIN = 'wecheap.amocrm.ru'  # Подтверждено техподдержкой
 
-# API domain from token
+# API domain from token - используем значение из токена
 API_DOMAIN = os.getenv('API_DOMAIN', 'api-a.amocrm.ru')
 
 # API endpoints
@@ -47,7 +47,5 @@ LOG_RETENTION_DAYS = 7
 # Token refresh buffer (in seconds) - refresh token if it expires in less than this time
 TOKEN_REFRESH_BUFFER = 3600  # 1 hour
 
-print("CLIENT_ID:", CLIENT_ID)
-print("CLIENT_SECRET:", CLIENT_SECRET)
-print("REDIRECT_URI:", REDIRECT_URI)
-print("AUTHORIZATION_CODE:", AUTHORIZATION_CODE)
+# Включаем расширенное логирование для диагностики проблем с авторизацией
+DEBUG_LOG = True

@@ -72,19 +72,31 @@ class Auth:
             raise Exception("Missing OAuth2 credentials. Please set CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, and AUTHORIZATION_CODE in the .env file.")
 
         try:
+            # Проверим, что используем правильный домен
+            auth_url = f'https://{config.AMOCRM_DOMAIN}/oauth2/access_token'
+
             payload = {
-                'grant_type': 'authorization_code',  # Используем authorization_code вместо long_term
+                'grant_type': 'authorization_code',
                 'client_id': client_id,
                 'client_secret': client_secret,
                 'redirect_uri': redirect_uri,
-                'code': auth_code  # Используем code вместо long_term_token
+                'code': auth_code
             }
 
-            response = requests.post(config.AUTH_URL, json=payload)
+            # Важно: указываем правильные заголовки
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            log_event('auth', 'info', f'Sending auth request to: {auth_url}')
+            response = requests.post(auth_url, headers=headers, json=payload)
+            log_event('auth', 'info', f'Auth response status: {response.status_code}')
+
             response.raise_for_status()
 
             # Get token data from response
             token_data = response.json()
+            log_event('auth', 'info', f'Received token response: {json.dumps(token_data)}')
 
             # Add expires_at field for easy checking
             if 'expires_in' in token_data:
@@ -99,6 +111,8 @@ class Auth:
 
         except Exception as e:
             log_event('auth', 'error', f'Error exchanging authorization code: {e}')
+            if hasattr(e, 'response') and e.response is not None:
+                log_event('auth', 'error', f'Response content: {e.response.text}')
             raise Exception(f"Failed to exchange authorization code: {e}")
 
     def _refresh_token(self):
@@ -117,6 +131,9 @@ class Auth:
             return self._exchange_auth_code_for_tokens()
 
         try:
+            # Используем правильный домен для обновления токена
+            auth_url = f'https://{config.AMOCRM_DOMAIN}/oauth2/access_token'
+
             payload = {
                 'grant_type': 'refresh_token',
                 'client_id': client_id,
@@ -125,11 +142,20 @@ class Auth:
                 'refresh_token': refresh_token
             }
 
-            response = requests.post(config.AUTH_URL, json=payload)
+            # Важно: указываем правильные заголовки
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            log_event('auth', 'info', f'Sending refresh request to: {auth_url}')
+            response = requests.post(auth_url, headers=headers, json=payload)
+            log_event('auth', 'info', f'Refresh response status: {response.status_code}')
+
             response.raise_for_status()
 
             # Get token data from response
             token_data = response.json()
+            log_event('auth', 'info', f'Received refresh response: {json.dumps(token_data)}')
 
             # Add expires_at field for easy checking
             if 'expires_in' in token_data:
@@ -144,6 +170,8 @@ class Auth:
 
         except Exception as e:
             log_event('auth', 'error', f'Error refreshing token: {e}. Trying to get new tokens with authorization code.')
+            if hasattr(e, 'response') and e.response is not None:
+                log_event('auth', 'error', f'Response content: {e.response.text}')
             # If refresh fails, try to get new tokens from authorization code
             self._exchange_auth_code_for_tokens()
 
@@ -185,6 +213,7 @@ class Auth:
             }
 
             # Make a test request to the account info endpoint
+            # Используем правильный API домен для запросов
             response = requests.get(f"{config.API_URL}/account", headers=headers)
             response.raise_for_status()
 
@@ -192,6 +221,8 @@ class Auth:
             return True
         except Exception as e:
             log_event('auth', 'error', f'Token validation failed: {e}')
+            if hasattr(e, 'response') and e.response is not None:
+                log_event('auth', 'error', f'Response content: {e.response.text}')
 
             # If validation fails, try to refresh token and validate again
             try:
@@ -209,4 +240,6 @@ class Auth:
                 return True
             except Exception as refresh_error:
                 log_event('auth', 'error', f'Token refresh and validation failed: {refresh_error}')
+                if hasattr(refresh_error, 'response') and refresh_error.response is not None:
+                    log_event('auth', 'error', f'Response content: {refresh_error.response.text}')
                 return False
