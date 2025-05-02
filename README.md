@@ -384,7 +384,7 @@ python main.py --fetch-all --batch-size 20
 
 1. Добавьте новый метод в `api.py`:
    ```python
-   def get_tasks_page(self, page: int) -> Tuple[List[Dict[str, Any]], bool]:
+   def get_tasks_page(self, page: int) -> tuple[list[dict[str, Any]], bool]:
        """Get a specific page of tasks"""
        return self._get_entity_page('tasks', page)
    ```

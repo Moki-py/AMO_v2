@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AmoCRM Data Exporter</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #4361ee;
+            --primary-hover: #3a56d4;
+            --primary-light: #eef2ff;
+            --success: #10b981;
+            --success-hover: #059669;
+            --warning: #f59e0b;
+            --warning-hover: #d97706;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --dark: #111827;
+            --gray: #6b7280;
+            --light-gray: #f3f4f6;
+            --white: #ffffff;
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --border-radius: 8px;
+            --card-border-radius: 12px;
+            --animation-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            background-color: #f9fafb;
+            color: #374151;
+            padding: 0;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--white);
+            box-shadow: var(--shadow);
+            padding: 16px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            margin-bottom: 30px;
+        }
+
+        header .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        h1, h2, h3 {
+            color: var(--dark);
+            font-weight: 600;
+        }
+
+        h1 {
+            font-size: 1.6rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h1 i {
+            color: var(--primary);
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        h2 i {
+            color: var(--primary);
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+            color: var(--gray);
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 48px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--light-gray);
+            transition: var(--animation-speed);
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--white);
+            transition: var(--animation-speed);
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background-color: var(--white);
+            border-radius: var(--card-border-radius);
+            box-shadow: var(--shadow);
+            padding: 20px;
+            transition: transform var(--animation-speed);
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat:last-child {
+            margin-bottom: 0;
+        }
+
+        .stat-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .stat-content {
+            flex: 1;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        .deals-icon { background-color: var(--primary-light); color: var(--primary); }
+        .contacts-icon { background-color: var(--success-light); color: var(--success); }
+        .companies-icon { background-color: var(--warning-light); color: var(--warning); }
+        .events-icon { background-color: var(--danger-light); color: var(--danger); }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border-radius: var(--border-radius);
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--animation-speed);
+            border: none;
+            font-size: 1rem;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: var(--white);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-success {
+            background-color: var(--success);
+            color: var(--white);
+        }
+
+        .btn-success:hover {
+            background-color: var(--success-hover);
+        }
+
+        .btn-warning {
+            background-color: var(--warning);
+            color: var(--white);
+        }
+
+        .btn-warning:hover {
+            background-color: var(--warning-hover);
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            color: var(--white);
+        }
+
+        .btn-danger:hover {
+            background-color: var(--danger-hover);
+        }
+
+        .logs {
+            background-color: var(--white);
+            border-radius: var(--card-border-radius);
+            box-shadow: var(--shadow);
+            padding: 20px;
+        }
+
+        .log-entry {
+            padding: 12px;
+            border-bottom: 1px solid var(--light-gray);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+
+        .log-content {
+            flex: 1;
+        }
+
+        .log-message {
+            margin-bottom: 4px;
+        }
+
+        .log-timestamp {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        .log-info { background-color: var(--primary-light); color: var(--primary); }
+        .log-warning { background-color: var(--warning-light); color: var(--warning); }
+        .log-error { background-color: var(--danger-light); color: var(--danger); }
+        .log-success { background-color: var(--success-light); color: var(--success); }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .actions {
+                grid-template-columns: 1fr;
+            }
+
+            header .header-content {
+                flex-direction: column;
+                gap: 16px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1><i class="fas fa-sync"></i> AmoCRM Data Exporter</h1>
+            <div class="auto-refresh">
+                <span>Auto-refresh</span>
+                <label class="toggle">
+                    <input type="checkbox" id="autoRefresh" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="grid">
+            <div class="card">
+                <div class="stat">
+                    <div class="stat-icon deals-icon">
+                        <i class="fas fa-handshake"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="dealsCount">0</div>
+                        <div class="stat-label">Deals</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="stat">
+                    <div class="stat-icon contacts-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="contactsCount">0</div>
+                        <div class="stat-label">Contacts</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="stat">
+                    <div class="stat-icon companies-icon">
+                        <i class="fas fa-building"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="companiesCount">0</div>
+                        <div class="stat-label">Companies</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="stat">
+                    <div class="stat-icon events-icon">
+                        <i class="fas fa-calendar"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="eventsCount">0</div>
+                        <div class="stat-label">Events</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" onclick="fetchData('all')">
+                <i class="fas fa-sync"></i> Fetch All
+            </button>
+            <button class="btn btn-success" onclick="fetchData('deals')">
+                <i class="fas fa-handshake"></i> Fetch Deals
+            </button>
+            <button class="btn btn-warning" onclick="fetchData('contacts')">
+                <i class="fas fa-users"></i> Fetch Contacts
+            </button>
+            <button class="btn btn-danger" onclick="fetchData('companies')">
+                <i class="fas fa-building"></i> Fetch Companies
+            </button>
+            <button class="btn btn-primary" onclick="fetchData('events')">
+                <i class="fas fa-calendar"></i> Fetch Events
+            </button>
+        </div>
+
+        <div class="logs">
+            <h2><i class="fas fa-list"></i> Recent Logs</h2>
+            <div id="logsContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh functionality
+        let autoRefreshInterval;
+        const autoRefreshCheckbox = document.getElementById('autoRefresh');
+
+        function startAutoRefresh() {
+            autoRefreshInterval = setInterval(updateData, 5000);
+        }
+
+        function stopAutoRefresh() {
+            clearInterval(autoRefreshInterval);
+        }
+
+        autoRefreshCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+
+        // Start auto-refresh by default
+        startAutoRefresh();
+
+        // Update data function
+        function updateData() {
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('dealsCount').textContent = data.deals || 0;
+                    document.getElementById('contactsCount').textContent = data.contacts || 0;
+                    document.getElementById('companiesCount').textContent = data.companies || 0;
+                    document.getElementById('eventsCount').textContent = data.events || 0;
+                });
+
+            fetch('/logs')
+                .then(response => response.json())
+                .then(logs => {
+                    const logsContainer = document.getElementById('logsContainer');
+                    logsContainer.innerHTML = (logs.logs || []).map(log => `
+                        <div class="log-entry">
+                            <div class="log-icon log-${log.level}">
+                                <i class="fas fa-${getLogIcon(log.level)}"></i>
+                            </div>
+                            <div class="log-content">
+                                <div class="log-message">${log.message}</div>
+                                <div class="log-timestamp">${new Date(log.timestamp).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        // Fetch data function
+        function fetchData(type) {
+            if (type === 'all') {
+                fetch('/fetch/all', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            updateData();
+                        }
+                    });
+            } else {
+                fetch(`/fetch/${type}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            updateData();
+                        }
+                    });
+            }
+        }
+
+        // Get icon for log level
+        function getLogIcon(level) {
+            switch (level) {
+                case 'info': return 'info-circle';
+                case 'warning': return 'exclamation-triangle';
+                case 'error': return 'times-circle';
+                case 'success': return 'check-circle';
+                default: return 'info-circle';
+            }
+        }
+
+        // Initial data load
+        updateData();
+    </script>
+</body>
+</html>
