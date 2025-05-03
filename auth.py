@@ -1,18 +1,18 @@
 """
-Authentication module for AmoCRM API using OAuth2
+Authentication module for AmoCRM API using long-term token
 """
+
 import json
 import os
 import requests
-import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
 
 import config
 from logger import log_event
 
+
 class Auth:
-    """Handle AmoCRM authentication with OAuth2"""
+    """Handle AmoCRM authentication with long-term token"""
 
     def __init__(self):
         """Initialize the authentication module"""
@@ -20,226 +20,85 @@ class Auth:
         self._load_token()
 
     def _load_token(self):
-        """Load the token from the token file or create using auth code"""
+        """Load the token from the token file or create from long-term token"""
         try:
             # Try to load from token file first
-            if os.path.exists(config.TOKEN_FILE):
-                with open(config.TOKEN_FILE, 'r', encoding='utf-8') as f:
+            if os.path.exists(config.settings.token_file):
+                with open(config.settings.token_file, "r", encoding="utf-8") as f:
                     self.token_data = json.load(f)
-                log_event('auth', 'info', 'Loaded token from file')
-
-                # Check if token needs refresh
-                if self._token_needs_refresh():
-                    log_event('auth', 'info', 'Token needs refresh, refreshing...')
-                    self._refresh_token()
+                log_event("auth", "info", "Loaded token from file")
             else:
-                # If no token file exists, create one using authorization code
-                self._exchange_auth_code_for_tokens()
+                # If no token file exists, create one from the long-term token
+                self._create_token_from_longterm()
         except Exception as e:
             print(f"Error loading token: {e}")
-            log_event('auth', 'error', f'Error loading token: {e}')
-            # Try to create from authorization code if loading failed
-            self._exchange_auth_code_for_tokens()
+            log_event("auth", "error", f"Error loading token: {e}")
+            # Try to create from long-term token if loading failed
+            self._create_token_from_longterm()
 
-    def _token_needs_refresh(self) -> bool:
-        """Check if the current token needs refresh"""
-        if not self.token_data or 'expires_at' not in self.token_data:
-            return True
+    def _create_token_from_longterm(self):
+        """Create token data from the long-term token"""
+        longterm_token = config.settings.longterm_token
 
-        try:
-            # Parse the expiration timestamp
-            expires_at = datetime.fromisoformat(self.token_data['expires_at'])
-            current_time = datetime.now()
-
-            # Add buffer time to refresh token before it actually expires
-            buffer_time = timedelta(seconds=config.TOKEN_REFRESH_BUFFER)
-
-            # Return True if token expires soon or has expired
-            return current_time + buffer_time >= expires_at
-        except (ValueError, TypeError):
-            # If there's any issue parsing the timestamp, refresh to be safe
-            return True
-
-    def _exchange_auth_code_for_tokens(self):
-        """Exchange authorization code for access and refresh tokens"""
-        auth_code = config.AUTHORIZATION_CODE
-        client_id = config.CLIENT_ID
-        client_secret = config.CLIENT_SECRET
-        redirect_uri = config.REDIRECT_URI
-
-        if not (auth_code and client_id and client_secret and redirect_uri):
-            log_event('auth', 'error', 'Missing OAuth2 credentials in config')
-            raise Exception("Missing OAuth2 credentials. Please set CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, and AUTHORIZATION_CODE in the .env file.")
-
-        try:
-            # Проверим, что используем правильный домен
-            auth_url = f'https://{config.AMOCRM_DOMAIN}/oauth2/access_token'
-
-            payload = {
-                'grant_type': 'authorization_code',
-                'client_id': client_id,
-                'client_secret': client_secret,
-                'redirect_uri': redirect_uri,
-                'code': auth_code
+        if longterm_token:
+            # Create a token data structure
+            self.token_data = {
+                "access_token": longterm_token,
+                "token_type": "Bearer",
+                "expires_in": 157680000,  # 5 years in seconds
+                "expires_at": (
+                    datetime.now() + timedelta(days=5 * 365)
+                ).isoformat(),
             }
-
-            # Важно: указываем правильные заголовки
-            headers = {
-                'Content-Type': 'application/json'
-            }
-
-            log_event('auth', 'info', f'Sending auth request to: {auth_url}')
-            response = requests.post(auth_url, headers=headers, json=payload)
-            log_event('auth', 'info', f'Auth response status: {response.status_code}')
-
-            response.raise_for_status()
-
-            # Get token data from response
-            token_data = response.json()
-            log_event('auth', 'info', f'Received token response: {json.dumps(token_data)}')
-
-            # Add expires_at field for easy checking
-            if 'expires_in' in token_data:
-                expires_at = datetime.now() + timedelta(seconds=token_data['expires_in'])
-                token_data['expires_at'] = expires_at.isoformat()
-
-            self.token_data = token_data
 
             # Save the token data
             self._save_token()
-            log_event('auth', 'info', 'Successfully exchanged authorization code for access and refresh tokens')
-
-        except Exception as e:
-            log_event('auth', 'error', f'Error exchanging authorization code: {e}')
-            if hasattr(e, 'response') and e.response is not None:
-                log_event('auth', 'error', f'Response content: {e.response.text}')
-            raise Exception(f"Failed to exchange authorization code: {e}")
-
-    def _refresh_token(self):
-        """Refresh the access token using the refresh token"""
-        if not self.token_data or 'refresh_token' not in self.token_data:
-            log_event('auth', 'error', 'No refresh token available, trying to get new tokens with authorization code')
-            return self._exchange_auth_code_for_tokens()
-
-        client_id = config.CLIENT_ID
-        client_secret = config.CLIENT_SECRET
-        redirect_uri = config.REDIRECT_URI
-        refresh_token = self.token_data['refresh_token']
-
-        if not (client_id and client_secret and redirect_uri and refresh_token):
-            log_event('auth', 'error', 'Missing OAuth2 credentials for token refresh')
-            return self._exchange_auth_code_for_tokens()
-
-        try:
-            # Используем правильный домен для обновления токена
-            auth_url = f'https://{config.AMOCRM_DOMAIN}/oauth2/access_token'
-
-            payload = {
-                'grant_type': 'refresh_token',
-                'client_id': client_id,
-                'client_secret': client_secret,
-                'redirect_uri': redirect_uri,
-                'refresh_token': refresh_token
-            }
-
-            # Важно: указываем правильные заголовки
-            headers = {
-                'Content-Type': 'application/json'
-            }
-
-            log_event('auth', 'info', f'Sending refresh request to: {auth_url}')
-            response = requests.post(auth_url, headers=headers, json=payload)
-            log_event('auth', 'info', f'Refresh response status: {response.status_code}')
-
-            response.raise_for_status()
-
-            # Get token data from response
-            token_data = response.json()
-            log_event('auth', 'info', f'Received refresh response: {json.dumps(token_data)}')
-
-            # Add expires_at field for easy checking
-            if 'expires_in' in token_data:
-                expires_at = datetime.now() + timedelta(seconds=token_data['expires_in'])
-                token_data['expires_at'] = expires_at.isoformat()
-
-            self.token_data = token_data
-
-            # Save the token data
-            self._save_token()
-            log_event('auth', 'info', 'Successfully refreshed access token')
-
-        except Exception as e:
-            log_event('auth', 'error', f'Error refreshing token: {e}. Trying to get new tokens with authorization code.')
-            if hasattr(e, 'response') and e.response is not None:
-                log_event('auth', 'error', f'Response content: {e.response.text}')
-            # If refresh fails, try to get new tokens from authorization code
-            self._exchange_auth_code_for_tokens()
+            log_event(
+                "auth", "info", "Created token data from long-term token"
+            )
+        else:
+            log_event("auth", "warning", "No long-term token available")
 
     def _save_token(self):
         """Save the token to the token file"""
         try:
             # Create the data directory if it doesn't exist
-            os.makedirs(os.path.dirname(config.TOKEN_FILE), exist_ok=True)
+            os.makedirs(os.path.dirname(config.settings.token_file), exist_ok=True)
 
-            with open(config.TOKEN_FILE, 'w', encoding='utf-8') as f:
+            with open(config.settings.token_file, "w", encoding="utf-8") as f:
                 json.dump(self.token_data, f, indent=2)
 
-            log_event('auth', 'info', 'Token saved to file')
+            log_event("auth", "info", "Token saved to file")
         except Exception as e:
             print(f"Error saving token: {e}")
-            log_event('auth', 'error', f'Error saving token: {e}')
+            log_event("auth", "error", f"Error saving token: {e}")
 
     def get_token(self):
-        """Get the current access token, refreshing if necessary"""
-        if not self.token_data or 'access_token' not in self.token_data:
-            self._exchange_auth_code_for_tokens()
+        """Get the current access token"""
+        if not self.token_data or "access_token" not in self.token_data:
+            self._create_token_from_longterm()
 
-        if self._token_needs_refresh():
-            self._refresh_token()
+            if not self.token_data or "access_token" not in self.token_data:
+                raise Exception(
+                    "No access token available. Please set LONGTERM_TOKEN in the .env file."
+                )
 
-        if not self.token_data or 'access_token' not in self.token_data:
-            raise Exception("No access token available. Please check your OAuth2 credentials in the .env file.")
-
-        return self.token_data['access_token']
+        token = self.token_data["access_token"]
+        return token
 
     def validate_token(self):
         """Validate that the token works by making a test API call"""
         try:
-            # Get a fresh token if needed
-            token = self.get_token()
-
-            headers = {
-                'Authorization': f'Bearer {token}'
-            }
+            headers = {"Authorization": f"Bearer {self.get_token()}"}
 
             # Make a test request to the account info endpoint
-            # Используем правильный API домен для запросов
-            response = requests.get(f"{config.API_URL}/account", headers=headers)
+            response = requests.get(
+                f"{config.settings.api_url}/account", headers=headers
+            )
             response.raise_for_status()
 
-            log_event('auth', 'info', 'Token validated successfully')
+            log_event("auth", "info", "Token validated successfully")
             return True
         except Exception as e:
-            log_event('auth', 'error', f'Token validation failed: {e}')
-            if hasattr(e, 'response') and e.response is not None:
-                log_event('auth', 'error', f'Response content: {e.response.text}')
-
-            # If validation fails, try to refresh token and validate again
-            try:
-                self._refresh_token()
-                token = self.get_token()
-
-                headers = {
-                    'Authorization': f'Bearer {token}'
-                }
-
-                response = requests.get(f"{config.API_URL}/account", headers=headers)
-                response.raise_for_status()
-
-                log_event('auth', 'info', 'Token refreshed and validated successfully')
-                return True
-            except Exception as refresh_error:
-                log_event('auth', 'error', f'Token refresh and validation failed: {refresh_error}')
-                if hasattr(refresh_error, 'response') and refresh_error.response is not None:
-                    log_event('auth', 'error', f'Response content: {refresh_error.response.text}')
-                return False
+            log_event("auth", "error", f"Token validation failed: {e}")
+            return False
