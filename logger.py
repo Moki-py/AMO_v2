@@ -2,12 +2,8 @@
 Logging module for AmoCRM exporter
 """
 
-import json
-import os
 from datetime import datetime
 from typing import Any
-
-import config
 
 # This is a circular import if we import Storage directly, so we'll initialize storage later
 storage = None
@@ -50,7 +46,9 @@ def log_event(
         log_entry["details"] = details
 
     # Print to console
-    print(f"[{timestamp}] [{component}] [{level.upper()}] {message}")
+    print(
+        f"[{timestamp}] [{component}] [{level.upper()}] {message}"
+    )
 
     # If storage is not initialized, store log in temporary buffer
     if storage is None:
@@ -85,23 +83,17 @@ def flush_log_buffer():
 
 
 def get_recent_logs(count=100):
-    """Get the most recent logs from the log file"""
-    log_file = config.settings.log_file
-    logs = []
+    """Get the most recent logs from MongoDB via storage"""
+    if storage is None:
+        print("DEBUG: storage is None, returning from buffer")
+        return _log_buffer[-count:]
 
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-                # Get the last N logs
-                logs = logs[-count:] if len(logs) > count else logs
-        except Exception as e:
-            logs = [
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "error",
-                    "message": f"Error loading logs: {e}",
-                }
-            ]
+    print("DEBUG: Getting logs from storage")
+    logs = storage.get_entities("logs")
+    print(f"DEBUG: Retrieved {len(logs)} logs from MongoDB")
 
-    return logs
+    # Sort by timestamp descending and return the most recent 'count' logs
+    logs = sorted(
+        logs, key=lambda x: x.get("timestamp", ""), reverse=True
+    )
+    return logs[:count]

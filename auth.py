@@ -84,7 +84,6 @@ class Auth:
                 )
 
         token = self.token_data["access_token"]
-        log_event("auth", "info", f"Token: {token}")
         return token
 
     def validate_token(self):

@@ -2,9 +2,6 @@
 Modern web interface for AmoCRM exporter using FastAPI
 """
 
-import os
-import json
-from datetime import datetime
 import webbrowser
 from enum import Enum
 from typing import Callable
@@ -14,7 +11,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
-import config
 from logger import log_event
 from storage import Storage
 from parallel_exporter import ParallelExporter
@@ -44,6 +40,23 @@ storage = Storage()
 logger.init_storage(storage)
 exporter = ParallelExporter()
 
+# Auto-continue exports that were still marked as running
+def continue_running_exports():
+    """Check for and continue any exports that were running when server was stopped"""
+    running_exports = exporter.get_running_exports()
+    if running_exports:
+        log_event("server", "info", f"Found running exports from previous session: {running_exports}")
+        for entity_type in running_exports:
+            try:
+                # Use the restart function which handles cleanup properly
+                exporter.restart_export(entity_type)
+            except Exception as e:
+                log_event("server", "error", f"Error continuing export for {entity_type}: {e}")
+    else:
+        log_event("server", "info", "No running exports from previous session found")
+
+# Try to continue any previously running exports
+continue_running_exports()
 
 # Create FastAPI app
 app = FastAPI(
@@ -57,40 +70,10 @@ app = FastAPI(
 templates = Jinja2Templates(directory="templates")
 
 
-def get_recent_logs(count: int = 100) -> list[dict]:
-    """Get the most recent logs from the log file"""
-    log_file = config.settings.log_file
-    logs = []
-
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-                # Get the last N logs
-                logs = logs[-count:] if len(logs) > count else logs
-        except Exception as e:
-            logs = [
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "error",
-                    "message": f"Error loading logs: {e}",
-                }
-            ]
-
-    return logs
-
-
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    """Serve the main page"""
-    try:
-        with open("templates/index.html", "r", encoding="utf-8") as f:
-            html = f.read()
-        return HTMLResponse(content=html)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error loading template: {e}"
-        )
+async def get_root(request: Request):
+    """Render the main UI"""
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/stats")
@@ -102,7 +85,7 @@ async def stats() -> dict:
 @app.get("/logs")
 async def logs() -> dict:
     """Return recent logs"""
-    return {"logs": get_recent_logs(30)}
+    return {"logs": logger.get_recent_logs(30)}
 
 
 @app.post("/fetch/all")
@@ -124,6 +107,71 @@ async def fetch_entity_handler(entity: EntityType) -> dict:
         raise HTTPException(status_code=400, detail="Invalid entity type")
     await fetch_entity(entity)
     return {"success": True}
+
+
+@app.post("/state/clear-running")
+async def clear_running_exports() -> dict:
+    """Clear all running exports to allow server restart"""
+    try:
+        exporter.state_manager.clear_running_exports()
+        log_event("server", "info", "Cleared all running exports")
+        return {"success": True, "message": "All running exports cleared"}
+    except Exception as e:
+        log_event("server", "error", f"Error clearing running exports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/state/reset")
+async def reset_all_state() -> dict:
+    """Reset all export state including running exports"""
+    try:
+        exporter.state_manager.reset_all_state()
+        log_event("server", "info", "Reset all export state")
+        return {"success": True, "message": "All export state has been reset"}
+    except Exception as e:
+        log_event("server", "error", f"Error resetting state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export-status")
+async def export_status() -> dict:
+    """Return the status of all exports"""
+    return {"status": exporter.get_export_status()}
+
+
+@app.post("/export/restart/{entity}")
+async def restart_export_handler(entity: EntityType) -> dict:
+    """Forcibly restart an export regardless of its current state"""
+    try:
+        if entity == EntityType.ALL:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
+                exporter.restart_export(e.value)
+            log_event("server", "info", "Restarting all exports")
+            return {"success": True, "message": "All exports are being restarted"}
+        else:
+            exporter.restart_export(entity.value)
+            log_event("server", "info", f"Restarting {entity.value} export")
+            return {"success": True, "message": f"{entity.value} export is being restarted"}
+    except Exception as e:
+        log_event("server", "error", f"Error restarting export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/export/stop/{entity}")
+async def stop_export_handler(entity: EntityType) -> dict:
+    """Stop a running export"""
+    try:
+        if entity == EntityType.ALL:
+            exporter.stop_all_exports()
+            log_event("server", "info", "Stopping all exports")
+            return {"success": True, "message": "All exports are being stopped"}
+        else:
+            exporter.stop_export(entity.value)
+            log_event("server", "info", f"Stopping {entity.value} export")
+            return {"success": True, "message": f"{entity.value} export is being stopped"}
+    except Exception as e:
+        log_event("server", "error", f"Error stopping export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def get_stats() -> dict:

@@ -5,7 +5,7 @@ Configuration for AmoCRM exporter using pydantic-settings and .env
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, HttpUrl, PositiveInt
+from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     # File paths
     data_dir: Path = Field(
         default_factory=lambda: Path("data"), description="Data directory"
+    )
+
+    # MongoDB settings
+    mongodb_uri: str = Field(
+        "mongodb://localhost:27017",
+        alias="MONGODB_URI",
+        description="MongoDB connection URI",
+    )
+    mongodb_db: str = Field(
+        "amocrm_exporter",
+        alias="MONGODB_DB",
+        description="MongoDB database name",
     )
 
     # Computed URLs

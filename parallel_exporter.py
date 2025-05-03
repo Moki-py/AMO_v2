@@ -26,6 +26,18 @@ class ParallelExporter:
         self.threads = {}
         self.stop_flags = {}
 
+        # Verify running exports from previous session
+        self._validate_running_exports()
+
+    def _validate_running_exports(self):
+        """Validate that exports marked as running in state can actually be found"""
+        valid_entity_types = ["leads", "contacts", "companies", "events"]
+        # Validate exports against known entity types
+        self.state_manager.verify_running_exports(valid_entity_types)
+
+        # Clean up any thread references as they aren't valid after restart
+        self.threads = {}
+
     def export_deals(
         self,
         force_restart: bool = False,
@@ -123,14 +135,26 @@ class ParallelExporter:
         batch_size: int,
     ):
         """Start a new export thread if one is not already running"""
-        # Check if export is already running
-        if self.state_manager.is_export_running(entity_type):
-            log_event(
-                "exporter",
-                "warning",
-                f"{entity_type} export is already running",
-            )
-            return
+        # Check if export is already running - use direct MongoDB check
+        if self.state_manager.is_export_running_in_db(entity_type):
+            # Check if the thread actually exists
+            if entity_type in self.threads and self.threads[entity_type].is_alive():
+                log_event(
+                    "exporter",
+                    "warning",
+                    f"{entity_type} export is already running",
+                )
+                return
+            else:
+                # Thread reference doesn't exist or thread is dead, but state says it's running
+                # This can happen after server restart - fix the state
+                log_event(
+                    "exporter",
+                    "warning",
+                    f"{entity_type} marked as running but no thread exists - fixing state",
+                )
+                # Stop it in the state so we can restart it properly
+                self.state_manager.mark_export_stopped(entity_type)
 
         # Reset export state if forced restart
         if force_restart:
@@ -171,6 +195,9 @@ class ParallelExporter:
             )
         finally:
             self.state_manager.mark_export_stopped("leads")
+            # Clean up thread reference
+            if "leads" in self.threads:
+                del self.threads["leads"]
 
     def _export_contacts_worker(
         self, batch_save: bool = True, batch_size: int = 10
@@ -186,6 +213,9 @@ class ParallelExporter:
             )
         finally:
             self.state_manager.mark_export_stopped("contacts")
+            # Clean up thread reference
+            if "contacts" in self.threads:
+                del self.threads["contacts"]
 
     def _export_companies_worker(
         self, batch_save: bool = True, batch_size: int = 10
@@ -204,6 +234,9 @@ class ParallelExporter:
             )
         finally:
             self.state_manager.mark_export_stopped("companies")
+            # Clean up thread reference
+            if "companies" in self.threads:
+                del self.threads["companies"]
 
     def _export_events_worker(
         self, batch_save: bool = True, batch_size: int = 10
@@ -219,6 +252,9 @@ class ParallelExporter:
             )
         finally:
             self.state_manager.mark_export_stopped("events")
+            # Clean up thread reference
+            if "events" in self.threads:
+                del self.threads["events"]
 
     def _export_entities_worker(
         self,
@@ -264,7 +300,7 @@ class ParallelExporter:
 
                     # Save batch if reached batch size or no more data
                     if batch_count >= batch_size or not has_more:
-                        self.storage.save_entities(entity_type, all_entities)
+                        self.storage.append_entities(entity_type, all_entities)
                         log_event(
                             "exporter",
                             "info",
@@ -274,7 +310,7 @@ class ParallelExporter:
                         batch_count = 0
                 else:
                     # Otherwise, save directly
-                    self.storage.save_entities(entity_type, entities)
+                    self.storage.append_entities(entity_type, entities)
 
                 log_event(
                     "exporter",
@@ -345,3 +381,31 @@ class ParallelExporter:
                 "last_page": self.state_manager.get_last_page(entity_type),
             }
         return status
+
+    def restart_export(self, entity_type: str):
+        """Force restart an export regardless of its current state"""
+        # First stop any running export
+        if entity_type in self.stop_flags:
+            self.stop_flags[entity_type] = True
+            log_event("exporter", "info", f"Stopping {entity_type} export for restart...")
+
+        # Clear the thread reference if it exists
+        if entity_type in self.threads:
+            del self.threads[entity_type]
+
+        # Make sure it's marked as stopped in the state
+        self.state_manager.mark_export_stopped(entity_type)
+
+        # Now restart based on entity type
+        export_methods = {
+            "leads": self.export_deals,
+            "contacts": self.export_contacts,
+            "companies": self.export_companies,
+            "events": self.export_events
+        }
+
+        if entity_type in export_methods:
+            log_event("exporter", "info", f"Restarting {entity_type} export")
+            export_methods[entity_type](force_restart=True)
+        else:
+            log_event("exporter", "error", f"Unknown entity type for restart: {entity_type}")
