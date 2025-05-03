@@ -104,7 +104,7 @@ class AmoCRMAPI:
         # Add with parameter for specific entity types
         if entity_type in ["leads", "contacts", "companies"]:
             params["with"] = (
-                "contacts,catalog_elements,leads,customers,segments"
+                "catalog_elements,leads,customers"
             )
 
         try:

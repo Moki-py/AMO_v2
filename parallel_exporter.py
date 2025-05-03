@@ -161,6 +161,7 @@ class ParallelExporter:
     ):
         """Worker function for exporting deals"""
         try:
+            log_event("exporter", "warning", "Starting deals export (test)")
             self._export_entities_worker(
                 "leads", self.api.get_deals_page, batch_save, batch_size
             )
@@ -227,6 +228,7 @@ class ParallelExporter:
         batch_size: int = 10,
     ):
         """Generic worker function for exporting entities"""
+
         # Get the last processed page from state
         start_page = self.state_manager.get_last_page(entity_type)
         current_page = start_page + 1 if start_page > 0 else 1

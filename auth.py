@@ -83,7 +83,9 @@ class Auth:
                     "No access token available. Please set LONGTERM_TOKEN in the .env file."
                 )
 
-        return self.token_data["access_token"]
+        token = self.token_data["access_token"]
+        log_event("auth", "info", f"Token: {token}")
+        return token
 
     def validate_token(self):
         """Validate that the token works by making a test API call"""
