@@ -3,11 +3,16 @@ Modern web interface for AmoCRM exporter using FastAPI
 """
 
 import webbrowser
+import json
+import hmac
+import hashlib
 from enum import Enum
-from typing import Callable
+from typing import Callable, Dict, Any, Optional
+from datetime import datetime
+from pymongo import MongoClient
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
@@ -15,6 +20,7 @@ from logger import log_event
 from storage import Storage
 from parallel_exporter import ParallelExporter
 import logger
+import config
 
 
 class ActionType(str, Enum):
@@ -230,6 +236,73 @@ async def fetch_entity(entity: EntityType):
         log_event("server", "error", f"Error starting export: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+def get_mongo_webhook_collection():
+    client = MongoClient(config.settings.mongodb_uri)
+    db = client[config.settings.mongodb_db]
+    return db["webhook_events"]
+
+
+def verify_webhook_signature(signature: Optional[str], body: bytes) -> bool:
+    if not hasattr(config.settings, 'webhook_secret') or not config.settings.webhook_secret or not signature:
+        return False
+    expected_signature = hmac.new(
+        config.settings.webhook_secret.encode(),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected_signature, signature)
+
+async def store_webhook_event(event_data: Dict[str, Any]) -> bool:
+    try:
+        event_data["_received_at"] = datetime.now().isoformat()
+        collection = get_mongo_webhook_collection()
+        collection.insert_one(event_data)
+        return True
+    except Exception as e:
+        log_event("webhook", "error", f"Error storing webhook event in MongoDB: {e}")
+        return False
+
+@app.post("/webhook")
+async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)):
+    body = await request.body()
+    if hasattr(config.settings, 'webhook_secret') and config.settings.webhook_secret:
+        if not verify_webhook_signature(x_signature, body):
+            log_event("webhook", "warning", "Invalid webhook signature")
+            return JSONResponse(status_code=401, content={"error": "Invalid signature"})
+    try:
+        webhook_data = await request.json()
+        event_type = webhook_data.get("event_type")
+        log_event("webhook", "info", f"Received webhook: {event_type}", details=webhook_data)
+        await store_webhook_event(webhook_data)
+        # Handle all main entity types
+        if event_type in ("update_lead", "add_lead", "delete_lead"):
+            exporter.export_deals()
+            log_event("webhook", "info", "Triggered deals export due to webhook")
+        elif event_type in ("update_contact", "add_contact", "delete_contact"):
+            exporter.export_contacts()
+            log_event("webhook", "info", "Triggered contacts export due to webhook")
+        elif event_type in ("update_company", "add_company", "delete_company"):
+            exporter.export_companies()
+            log_event("webhook", "info", "Triggered companies export due to webhook")
+        elif event_type in ("update_event", "add_event", "delete_event"):
+            exporter.export_events()
+            log_event("webhook", "info", "Triggered events export due to webhook")
+        # You can add more entity types here as needed
+        return {"success": True, "event_type": event_type}
+    except Exception as e:
+        log_event("webhook", "error", f"Error processing webhook: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/webhooks")
+async def get_webhook_events():
+    try:
+        collection = get_mongo_webhook_collection()
+        events = list(collection.find({}, {"_id": 0}))
+    except Exception as e:
+        log_event("webhook", "error", f"Error reading webhook events from MongoDB: {e}")
+        events = []
+    return {"events": events, "count": len(events)}
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run the FastAPI server"""
