@@ -201,3 +201,7 @@ Temporary Items
 .env
 
 data/
+mongo_data/
+exports/
+credentials.json
+token.json

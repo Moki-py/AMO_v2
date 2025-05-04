@@ -6,19 +6,22 @@ import webbrowser
 import json
 import hmac
 import hashlib
+import os
 from enum import Enum
 from typing import Callable, Dict, Any, Optional
 from datetime import datetime
 from pymongo import MongoClient
 
 from fastapi import FastAPI, HTTPException, Request, Header
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
 from logger import log_event
 from storage import Storage
 from parallel_exporter import ParallelExporter
+from excel_exporter import ExcelExporter
+from sheets_exporter import SheetsExporter
 import logger
 import config
 
@@ -45,6 +48,8 @@ class EntityType(str, Enum):
 storage = Storage()
 logger.init_storage(storage)
 exporter = ParallelExporter()
+excel_exporter = ExcelExporter(storage)
+sheets_exporter = SheetsExporter(storage)
 
 # Auto-continue exports that were still marked as running
 def continue_running_exports():
@@ -89,9 +94,14 @@ async def stats() -> dict:
 
 
 @app.get("/logs")
-async def logs() -> dict:
-    """Return recent logs"""
-    return {"logs": logger.get_recent_logs(30)}
+async def logs(entity: str | None = None, level: str | None = None) -> dict:
+    """Return recent logs with optional filtering by entity type and log level"""
+    try:
+        logs = logger.get_recent_logs(count=30, entity=entity, level=level)
+        return {"logs": logs}
+    except Exception as e:
+        log_event("server", "error", f"Error retrieving logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/fetch/all")
@@ -177,6 +187,38 @@ async def stop_export_handler(entity: EntityType) -> dict:
             return {"success": True, "message": f"{entity.value} export is being stopped"}
     except Exception as e:
         log_event("server", "error", f"Error stopping export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export/excel")
+async def export_excel_handler():
+    """Export all data to Excel file with sheets split by entity_type and custom fields in separate columns"""
+    try:
+        excel_file = excel_exporter.export_all_to_excel()
+        log_event("server", "info", f"Excel export generated: {excel_file}")
+
+        # Return the file for download
+        return FileResponse(
+            path=excel_file,
+            filename=os.path.basename(excel_file),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        log_event("server", "error", f"Error generating Excel export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export/sheets")
+async def export_sheets_handler():
+    """Export all data to Google Sheets with sheets split by entity_type and custom fields in separate columns"""
+    try:
+        sheets_url = sheets_exporter.export_all_to_sheets()
+        log_event("server", "info", f"Google Sheets export generated: {sheets_url}")
+
+        # Return the URL for the user to open
+        return {"url": sheets_url}
+    except Exception as e:
+        log_event("server", "error", f"Error generating Google Sheets export: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

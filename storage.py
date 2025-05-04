@@ -118,13 +118,21 @@ class Storage:
             )
             return False
 
-    def get_entities(self, entity_type: str) -> list[dict[str, Any]]:
-        """Get all entities of a specific type from MongoDB"""
+    def get_entities(self, entity_type: str, query: dict[str, Any] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        """Get entities of a specific type from MongoDB with optional filtering and limit"""
         try:
             collection = self.db[self._get_collection_name(entity_type)]
-            return list(
-                collection.find({}, {"_id": 0})
-            )
+            cursor = collection.find(query or {}, {"_id": 0})
+
+            # Sort by timestamp descending for logs
+            if entity_type == "logs":
+                cursor = cursor.sort("timestamp", -1)
+
+            # Apply limit if specified
+            if limit:
+                cursor = cursor.limit(limit)
+
+            return list(cursor)
         except PyMongoError as e:
             log_event(
                 "storage", "error",

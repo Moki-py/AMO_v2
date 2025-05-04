@@ -82,18 +82,30 @@ def flush_log_buffer():
     _log_buffer = []
 
 
-def get_recent_logs(count=100):
-    """Get the most recent logs from MongoDB via storage"""
+def get_recent_logs(count=100, entity=None, level=None):
+    """Get the most recent logs from MongoDB via storage with optional filtering"""
     if storage is None:
         print("DEBUG: storage is None, returning from buffer")
-        return _log_buffer[-count:]
+        logs = _log_buffer[-count:]
+        # Apply filters to buffer logs
+        if entity:
+            logs = [log for log in logs if entity.lower() in log.get('message', '').lower()]
+        if level:
+            logs = [log for log in logs if log.get('level') == level]
+        return logs
 
     print("DEBUG: Getting logs from storage")
-    logs = storage.get_entities("logs")
-    print(f"DEBUG: Retrieved {len(logs)} logs from MongoDB")
+    try:
+        # Build filter query
+        query = {}
+        if entity:
+            query['message'] = {'$regex': entity, '$options': 'i'}
+        if level:
+            query['level'] = level
 
-    # Sort by timestamp descending and return the most recent 'count' logs
-    logs = sorted(
-        logs, key=lambda x: x.get("timestamp", ""), reverse=True
-    )
-    return logs[:count]
+        logs = storage.get_entities("logs", query=query, limit=count)
+        print(f"DEBUG: Retrieved {len(logs)} logs from MongoDB")
+        return logs
+    except Exception as e:
+        print(f"DEBUG: Error getting logs from storage: {e}")
+        return []

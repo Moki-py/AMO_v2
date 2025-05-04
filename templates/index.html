@@ -459,6 +459,46 @@
                 text-align: center;
             }
         }
+
+        .log-filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #2d3748;
+            border-radius: var(--border-radius);
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            color: var(--terminal-text);
+            font-size: 0.9rem;
+        }
+
+        .filter-group select {
+            background-color: #1e293b;
+            color: var(--terminal-text);
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .filter-group select:hover {
+            border-color: var(--terminal-blue);
+        }
+
+        .filter-group select:focus {
+            outline: none;
+            border-color: var(--terminal-blue);
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -554,6 +594,14 @@
                         <i class="fas fa-calendar-alt"></i>
                         Export Events
                     </button>
+                    <button class="btn btn-success" onclick="exportToExcel()">
+                        <i class="fas fa-file-excel"></i>
+                        Export to Excel
+                    </button>
+                    <button class="btn btn-success" onclick="exportToSheets()">
+                        <i class="fas fa-file-spreadsheet"></i>
+                        Export to Google Sheets
+                    </button>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-warning" onclick="clearRunningExports()">
@@ -574,6 +622,29 @@
 
         <div class="logs">
             <h2><i class="fas fa-terminal"></i> Logs</h2>
+            <div class="log-filters">
+                <div class="filter-group">
+                    <label>Entity Type:</label>
+                    <select id="entityFilter" onchange="applyFilters()">
+                        <option value="all">All Entities</option>
+                        <option value="deals">Deals</option>
+                        <option value="contacts">Contacts</option>
+                        <option value="companies">Companies</option>
+                        <option value="events">Events</option>
+                        <option value="sheets">Sheets</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Log Level:</label>
+                    <select id="levelFilter" onchange="applyFilters()">
+                        <option value="all">All Levels</option>
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                        <option value="success">Success</option>
+                    </select>
+                </div>
+            </div>
             <div id="logsContainer"></div>
         </div>
     </div>
@@ -622,22 +693,7 @@
                     updateExportStatus('events', data.status.events);
                 });
 
-            fetch('/logs')
-                .then(response => response.json())
-                .then(logs => {
-                    const logsContainer = document.getElementById('logsContainer');
-                    logsContainer.innerHTML = (logs.logs || []).map(log => `
-                        <div class="log-entry">
-                            <div class="log-icon log-${log.level}">
-                                <i class="fas fa-${getLogIcon(log.level)}"></i>
-                            </div>
-                            <div class="log-content">
-                                <div class="log-message">${log.message}</div>
-                                <div class="log-timestamp">${new Date(log.timestamp).toLocaleTimeString()}</div>
-                            </div>
-                        </div>
-                    `).join('');
-                });
+            applyFilters();
         }
 
         // Update export status
@@ -825,6 +881,56 @@
                 case 'success': return 'check-circle';
                 default: return 'info-circle';
             }
+        }
+
+        // Export to Excel function
+        function exportToExcel() {
+            window.location.href = '/export/excel';
+        }
+
+        // Export to Google Sheets function
+        function exportToSheets() {
+            fetch('/export/sheets')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.url) {
+                        window.open(data.url, '_blank');
+                    } else {
+                        alert('Error: No URL returned from server');
+                    }
+                })
+                .catch(error => {
+                    alert(`Error: ${error}`);
+                });
+        }
+
+        // Apply filters to logs
+        function applyFilters() {
+            const entityFilter = document.getElementById('entityFilter').value;
+            const levelFilter = document.getElementById('levelFilter').value;
+            const logsContainer = document.getElementById('logsContainer');
+
+            // Build query parameters
+            const params = new URLSearchParams();
+            if (entityFilter !== 'all') params.append('entity', entityFilter);
+            if (levelFilter !== 'all') params.append('level', levelFilter);
+
+            // Fetch filtered logs from backend
+            fetch(`/logs?${params.toString()}`)
+                .then(response => response.json())
+                .then(logs => {
+                    logsContainer.innerHTML = (logs.logs || []).map(log => `
+                        <div class="log-entry">
+                            <div class="log-icon log-${log.level}">
+                                <i class="fas fa-${getLogIcon(log.level)}"></i>
+                            </div>
+                            <div class="log-content">
+                                <div class="log-message">${log.message}</div>
+                                <div class="log-timestamp">${new Date(log.timestamp).toLocaleTimeString()}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                });
         }
 
         // Initial data load

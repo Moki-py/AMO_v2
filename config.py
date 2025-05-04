@@ -81,6 +81,28 @@ class Settings(BaseSettings):
         description="MongoDB database name",
     )
 
+    # Google Sheets settings
+    google_sheets_leads_id: Optional[str] = Field(
+        None,
+        alias="GOOGLE_SHEETS_LEADS_ID",
+        description="Google Sheets ID for leads export",
+    )
+    google_sheets_contacts_id: Optional[str] = Field(
+        None,
+        alias="GOOGLE_SHEETS_CONTACTS_ID",
+        description="Google Sheets ID for contacts export",
+    )
+    google_sheets_companies_id: Optional[str] = Field(
+        None,
+        alias="GOOGLE_SHEETS_COMPANIES_ID",
+        description="Google Sheets ID for companies export",
+    )
+    google_sheets_events_id: Optional[str] = Field(
+        None,
+        alias="GOOGLE_SHEETS_EVENTS_ID",
+        description="Google Sheets ID for events export",
+    )
+
     # Computed URLs
     @property
     def base_url(self) -> str:

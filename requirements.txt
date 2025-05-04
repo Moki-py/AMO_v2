@@ -6,3 +6,8 @@ uvicorn
 jinja2
 pydantic-settings
 pymongo
+pandas
+openpyxl
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
