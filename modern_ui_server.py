@@ -3,7 +3,6 @@ Modern web interface for AmoCRM exporter using FastAPI
 """
 
 import webbrowser
-import json
 import hmac
 import hashlib
 import os
@@ -12,7 +11,7 @@ from typing import Callable, Dict, Any, Optional
 from datetime import datetime
 from pymongo import MongoClient
 
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -105,15 +104,20 @@ async def logs(entity: str | None = None, level: str | None = None) -> dict:
 
 
 @app.post("/fetch/all")
-async def fetch_all_handler() -> dict:
-    """Trigger export of all entities"""
-    await fetch_all()
+async def fetch_all_handler(
+    date_from: str = Query(None),
+    date_to: str = Query(None)
+) -> dict:
+    await fetch_all(date_from, date_to)
     return {"success": True}
 
 
 @app.post("/fetch/{entity}")
-async def fetch_entity_handler(entity: EntityType) -> dict:
-    """Trigger export of a specific entity"""
+async def fetch_entity_handler(
+    entity: EntityType,
+    date_from: str = Query(None),
+    date_to: str = Query(None)
+) -> dict:
     if entity not in [
         EntityType.DEALS,
         EntityType.CONTACTS,
@@ -121,7 +125,7 @@ async def fetch_entity_handler(entity: EntityType) -> dict:
         EntityType.EVENTS,
     ]:
         raise HTTPException(status_code=400, detail="Invalid entity type")
-    await fetch_entity(entity)
+    await fetch_entity(entity, date_from, date_to)
     return {"success": True}
 
 
@@ -190,14 +194,36 @@ async def stop_export_handler(entity: EntityType) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/export/excel")
-async def export_excel_handler():
-    """Export all data to Excel file with sheets split by entity_type and custom fields in separate columns"""
+@app.post("/export/resume/{entity}")
+async def resume_export_handler(entity: EntityType) -> dict:
+    """Resume an export from the last saved page without resetting state"""
     try:
-        excel_file = excel_exporter.export_all_to_excel()
-        log_event("server", "info", f"Excel export generated: {excel_file}")
+        if entity == EntityType.ALL:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
+                exporter.resume_export(e.value)
+            log_event("server", "info", "Resuming all exports")
+            return {"success": True, "message": "All exports are being resumed"}
+        else:
+            exporter.resume_export(entity.value)
+            log_event("server", "info", f"Resuming {entity.value} export")
+            return {"success": True, "message": f"{entity.value} export is being resumed"}
+    except Exception as e:
+        log_event("server", "error", f"Error resuming export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # Return the file for download
+
+@app.get("/export/excel")
+async def export_excel_handler(
+    date_from: str = Query(None),
+    date_to: str = Query(None)
+):
+    try:
+        excel_file = excel_exporter.export_all_to_excel(
+            date_from=date_from, date_to=date_to
+        )
+        log_event(
+            "server", "info", f"Excel export generated: {excel_file}"
+        )
         return FileResponse(
             path=excel_file,
             filename=os.path.basename(excel_file),
@@ -209,13 +235,17 @@ async def export_excel_handler():
 
 
 @app.get("/export/sheets")
-async def export_sheets_handler():
-    """Export all data to Google Sheets with sheets split by entity_type and custom fields in separate columns"""
+async def export_sheets_handler(
+    date_from: str = Query(None),
+    date_to: str = Query(None)
+):
     try:
-        sheets_url = sheets_exporter.export_all_to_sheets()
-        log_event("server", "info", f"Google Sheets export generated: {sheets_url}")
-
-        # Return the URL for the user to open
+        sheets_url = sheets_exporter.export_all_to_sheets(
+            date_from=date_from, date_to=date_to
+        )
+        log_event(
+            "server", "info", f"Google Sheets export generated: {sheets_url}"
+        )
         return {"url": sheets_url}
     except Exception as e:
         log_event("server", "error", f"Error generating Google Sheets export: {e}")
@@ -241,30 +271,28 @@ def get_stats() -> dict:
         return {"deals": 0, "contacts": 0, "companies": 0, "events": 0}
 
 
-async def fetch_all():
-    """Fetch all data"""
+async def fetch_all(date_from=None, date_to=None):
     try:
-        exporter.export_all()
+        exporter.export_all(date_from=date_from, date_to=date_to)
         log_event("server", "info", "Started export of all data")
     except Exception as e:
         log_event("server", "error", f"Error starting export: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def fetch_entity(entity: EntityType):
-    """Fetch specific entity type"""
+async def fetch_entity(entity: EntityType, date_from=None, date_to=None):
     try:
-        # Map entity types to export methods
         export_methods: dict[EntityType, Callable] = {
             EntityType.DEALS: exporter.export_deals,
             EntityType.CONTACTS: exporter.export_contacts,
             EntityType.COMPANIES: exporter.export_companies,
             EntityType.EVENTS: exporter.export_events,
         }
-
         if entity in export_methods:
-            export_methods[entity]()
-            log_event("server", "info", f"Started export of {entity.value}")
+            export_methods[entity](date_from=date_from, date_to=date_to)
+            log_event(
+                "server", "info", f"Started export of {entity.value}"
+            )
         else:
             log_event(
                 "server", "error", f"Invalid entity type: {entity.value}"

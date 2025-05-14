@@ -119,7 +119,7 @@ class SheetsExporter:
             log_event("sheets", "error", f"Error ensuring sheet exists: {e}")
             raise
 
-    def export_all_to_sheets(self) -> Dict[str, str]:
+    def export_all_to_sheets(self, date_from: str = None, date_to: str = None) -> Dict[str, str]:
         """
         Export all entity data to separate Google Sheets
         Returns a dictionary mapping entity types to their spreadsheet URLs
@@ -131,12 +131,25 @@ class SheetsExporter:
             self._get_credentials()
             service = build('sheets', 'v4', credentials=self.creds)
 
-            # Get all entity data
+            # Build MongoDB query for updated_at filter
+            query = {}
+            if date_from or date_to:
+                query["updated_at"] = {}
+                if date_from:
+                    from_dt = int(datetime.fromisoformat(date_from).timestamp())
+                    query["updated_at"]["$gte"] = from_dt
+                if date_to:
+                    to_dt = int(datetime.fromisoformat(date_to).timestamp())
+                    query["updated_at"]["$lte"] = to_dt
+                if not query["updated_at"]:
+                    del query["updated_at"]
+
+            # Get all entity data with filter
             entities_data = {
-                "leads": self.storage.get_entities("leads") or [],
-                "contacts": self.storage.get_entities("contacts") or [],
-                "companies": self.storage.get_entities("companies") or [],
-                "events": self.storage.get_entities("events") or []
+                "leads": self.storage.get_entities("leads", query=query) or [],
+                "contacts": self.storage.get_entities("contacts", query=query) or [],
+                "companies": self.storage.get_entities("companies", query=query) or [],
+                "events": self.storage.get_entities("events", query=query) or []
             }
 
             results = {}

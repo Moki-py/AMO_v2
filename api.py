@@ -5,6 +5,7 @@ AmoCRM API interaction module
 import time
 import requests
 from typing import Any
+from datetime import datetime
 
 import config
 from auth import Auth
@@ -67,31 +68,27 @@ class AmoCRMAPI:
             log_event("api", "error", error_msg)
             raise
 
-    def get_deals_page(self, page: int) -> tuple[list[dict[str, Any]], bool]:
-        """Get a specific page of deals"""
-        return self._get_entity_page("leads", page)
+    def get_deals_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of deals, optionally filtered by updated_at"""
+        return self._get_entity_page("leads", page, date_from, date_to)
 
-    def get_contacts_page(
-        self, page: int
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Get a specific page of contacts"""
-        return self._get_entity_page("contacts", page)
+    def get_contacts_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of contacts, optionally filtered by updated_at"""
+        return self._get_entity_page("contacts", page, date_from, date_to)
 
-    def get_companies_page(
-        self, page: int
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Get a specific page of companies"""
-        return self._get_entity_page("companies", page)
+    def get_companies_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of companies, optionally filtered by updated_at"""
+        return self._get_entity_page("companies", page, date_from, date_to)
 
-    def get_events_page(self, page: int) -> tuple[list[dict[str, Any]], bool]:
-        """Get a specific page of events"""
-        return self._get_entity_page("events", page)
+    def get_events_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of events, optionally filtered by updated_at"""
+        return self._get_entity_page("events", page, date_from, date_to)
 
     def _get_entity_page(
-        self, entity_type: str, page: int
+        self, entity_type: str, page: int, date_from: str = None, date_to: str = None
     ) -> tuple[list[dict[str, Any]], bool]:
         """
-        Get a specific page of entities
+        Get a specific page of entities, optionally filtered by updated_at
 
         Returns:
             tuple containing the list of entities and a boolean indicating if there are more pages
@@ -106,6 +103,25 @@ class AmoCRMAPI:
             params["with"] = (
                 "catalog_elements,leads,customers"
             )
+
+        # Add updated_at filter if provided
+        if date_from:
+            # Convert to unix timestamp if needed
+            try:
+                from_ts = int(
+                    datetime.fromisoformat(date_from).timestamp()
+                )
+            except Exception:
+                from_ts = date_from
+            params["updated_at[from]"] = from_ts
+        if date_to:
+            try:
+                to_ts = int(
+                    datetime.fromisoformat(date_to).timestamp()
+                )
+            except Exception:
+                to_ts = date_to
+            params["updated_at[to]"] = to_ts
 
         try:
             response = self._make_request("GET", entity_type, params=params)

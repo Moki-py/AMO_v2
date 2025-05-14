@@ -373,7 +373,7 @@
             gap: 6px;
         }
 
-        .restart-btn, .stop-btn {
+        .restart-btn, .stop-btn, .resume-btn {
             color: white;
             border: none;
             border-radius: 4px;
@@ -393,6 +393,16 @@
 
         .restart-btn:hover {
             background-color: var(--warning-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+
+        .resume-btn {
+            background-color: var(--primary);
+        }
+
+        .resume-btn:hover {
+            background-color: var(--primary-hover);
             transform: translateY(-1px);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
         }
@@ -572,6 +582,12 @@
 
         <div class="management-section">
             <h2><i class="fas fa-cogs"></i> Management</h2>
+            <div class="filter-group" style="margin-bottom: 16px;">
+                <label for="dateFrom">Updated from:</label>
+                <input type="date" id="dateFrom" name="dateFrom">
+                <label for="dateTo">to</label>
+                <input type="date" id="dateTo" name="dateTo">
+            </div>
             <div class="action-buttons">
                 <div class="btn-group">
                     <button class="btn btn-primary" onclick="fetchData('all')">
@@ -761,6 +777,11 @@
                             <span title="${lastUpdate}">${message}</span>
                         </div>
                         <div class="export-buttons">
+                            ${status.last_page > 0 ? `
+                            <button class="resume-btn" onclick="resumeExport('${entity}')" title="Resume export">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            ` : ''}
                             <button class="restart-btn" onclick="restartExport('${entity}')" title="Start/restart export">
                                 <i class="fas fa-redo-alt"></i>
                             </button>
@@ -817,25 +838,48 @@
             }
         }
 
-        // Fetch data function
-        function fetchData(type) {
-            if (type === 'all') {
-                fetch('/fetch/all', { method: 'POST' })
+        // Resume export function
+        function resumeExport(entity) {
+            if (confirm(`Do you want to resume the ${entity} export from the last saved page?`)) {
+                fetch(`/export/resume/${entity}`, { method: 'POST' })
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
+                            alert(data.message || `${entity} export is being resumed`);
                             updateData();
                         }
-                    });
-            } else {
-                fetch(`/fetch/${type}`, { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            updateData();
-                        }
+                    })
+                    .catch(error => {
+                        alert(`Error: ${error}`);
                     });
             }
+        }
+
+        // Get date range parameters
+        function getDateRangeParams() {
+            const from = document.getElementById('dateFrom').value;
+            const to = document.getElementById('dateTo').value;
+            const params = {};
+            if (from) params['date_from'] = from;
+            if (to) params['date_to'] = to;
+            return params;
+        }
+
+        // Fetch data function
+        function fetchData(entity) {
+            const params = getDateRangeParams();
+            let url = entity === 'all' ? '/fetch/all' : `/fetch/${entity}`;
+            fetch(url + '?' + new URLSearchParams(params), { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Export started');
+                        updateData();
+                    }
+                })
+                .catch(error => {
+                    alert(`Error: ${error}`);
+                });
         }
 
         // Clear running exports function
@@ -885,12 +929,15 @@
 
         // Export to Excel function
         function exportToExcel() {
-            window.location.href = '/export/excel';
+            const params = getDateRangeParams();
+            const url = '/export/excel?' + new URLSearchParams(params);
+            window.location.href = url;
         }
 
         // Export to Google Sheets function
         function exportToSheets() {
-            fetch('/export/sheets')
+            const params = getDateRangeParams();
+            fetch('/export/sheets?' + new URLSearchParams(params))
                 .then(response => response.json())
                 .then(data => {
                     if (data.url) {

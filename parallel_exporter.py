@@ -43,6 +43,8 @@ class ParallelExporter:
         force_restart: bool = False,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Export deals in a separate thread"""
         self._start_export_thread(
@@ -51,6 +53,8 @@ class ParallelExporter:
             force_restart,
             batch_save,
             batch_size,
+            date_from,
+            date_to,
         )
 
     def export_contacts(
@@ -58,6 +62,8 @@ class ParallelExporter:
         force_restart: bool = False,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Export contacts in a separate thread"""
         self._start_export_thread(
@@ -66,6 +72,8 @@ class ParallelExporter:
             force_restart,
             batch_save,
             batch_size,
+            date_from,
+            date_to,
         )
 
     def export_companies(
@@ -73,6 +81,8 @@ class ParallelExporter:
         force_restart: bool = False,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Export companies in a separate thread"""
         self._start_export_thread(
@@ -81,6 +91,8 @@ class ParallelExporter:
             force_restart,
             batch_save,
             batch_size,
+            date_from,
+            date_to,
         )
 
     def export_events(
@@ -88,6 +100,8 @@ class ParallelExporter:
         force_restart: bool = False,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Export events in a separate thread"""
         self._start_export_thread(
@@ -96,6 +110,8 @@ class ParallelExporter:
             force_restart,
             batch_save,
             batch_size,
+            date_from,
+            date_to,
         )
 
     def export_all(
@@ -103,27 +119,37 @@ class ParallelExporter:
         force_restart: bool = False,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Export all entity types in parallel"""
         self.export_deals(
             force_restart=force_restart,
             batch_save=batch_save,
             batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
         )
         self.export_contacts(
             force_restart=force_restart,
             batch_save=batch_save,
             batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
         )
         self.export_companies(
             force_restart=force_restart,
             batch_save=batch_save,
             batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
         )
         self.export_events(
             force_restart=force_restart,
             batch_save=batch_save,
             batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
         )
 
     def _start_export_thread(
@@ -133,6 +159,8 @@ class ParallelExporter:
         force_restart: bool,
         batch_save: bool,
         batch_size: int,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Start a new export thread if one is not already running"""
         # Check if export is already running - use direct MongoDB check
@@ -169,7 +197,7 @@ class ParallelExporter:
         # Start the export thread
         thread = threading.Thread(
             target=worker_func,
-            args=(batch_save, batch_size),
+            args=(batch_save, batch_size, date_from, date_to),
             name=f"{entity_type}_export_thread",
         )
         thread.daemon = True
@@ -181,13 +209,13 @@ class ParallelExporter:
         log_event("exporter", "info", f"Started {entity_type} export thread")
 
     def _export_deals_worker(
-        self, batch_save: bool = True, batch_size: int = 10
+        self, batch_save: bool = True, batch_size: int = 10, date_from: str = None, date_to: str = None
     ):
         """Worker function for exporting deals"""
         try:
             log_event("exporter", "warning", "Starting deals export (test)")
             self._export_entities_worker(
-                "leads", self.api.get_deals_page, batch_save, batch_size
+                "leads", self.api.get_deals_page, batch_save, batch_size, date_from, date_to
             )
         except Exception as e:
             log_event(
@@ -200,12 +228,12 @@ class ParallelExporter:
                 del self.threads["leads"]
 
     def _export_contacts_worker(
-        self, batch_save: bool = True, batch_size: int = 10
+        self, batch_save: bool = True, batch_size: int = 10, date_from: str = None, date_to: str = None
     ):
         """Worker function for exporting contacts"""
         try:
             self._export_entities_worker(
-                "contacts", self.api.get_contacts_page, batch_save, batch_size
+                "contacts", self.api.get_contacts_page, batch_save, batch_size, date_from, date_to
             )
         except Exception as e:
             log_event(
@@ -218,7 +246,7 @@ class ParallelExporter:
                 del self.threads["contacts"]
 
     def _export_companies_worker(
-        self, batch_save: bool = True, batch_size: int = 10
+        self, batch_save: bool = True, batch_size: int = 10, date_from: str = None, date_to: str = None
     ):
         """Worker function for exporting companies"""
         try:
@@ -227,6 +255,8 @@ class ParallelExporter:
                 self.api.get_companies_page,
                 batch_save,
                 batch_size,
+                date_from,
+                date_to,
             )
         except Exception as e:
             log_event(
@@ -239,12 +269,12 @@ class ParallelExporter:
                 del self.threads["companies"]
 
     def _export_events_worker(
-        self, batch_save: bool = True, batch_size: int = 10
+        self, batch_save: bool = True, batch_size: int = 10, date_from: str = None, date_to: str = None
     ):
         """Worker function for exporting events"""
         try:
             self._export_entities_worker(
-                "events", self.api.get_events_page, batch_save, batch_size
+                "events", self.api.get_events_page, batch_save, batch_size, date_from, date_to
             )
         except Exception as e:
             log_event(
@@ -262,6 +292,8 @@ class ParallelExporter:
         page_getter: Callable,
         batch_save: bool = True,
         batch_size: int = 10,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """Generic worker function for exporting entities"""
 
@@ -286,7 +318,7 @@ class ParallelExporter:
         while has_more and not self.stop_flags.get(entity_type, False):
             try:
                 # Get entities for current page
-                entities, has_more = page_getter(current_page)
+                entities, has_more = page_getter(current_page, date_from, date_to)
 
                 # Update state
                 self.state_manager.update_export_progress(
@@ -409,3 +441,31 @@ class ParallelExporter:
             export_methods[entity_type](force_restart=True)
         else:
             log_event("exporter", "error", f"Unknown entity type for restart: {entity_type}")
+
+    def resume_export(self, entity_type: str):
+        """Resume an export from the last saved page without resetting state"""
+        # First stop any running export (if any)
+        if entity_type in self.stop_flags:
+            self.stop_flags[entity_type] = True
+            log_event("exporter", "info", f"Stopping {entity_type} export for resume...")
+
+        # Clear the thread reference if it exists
+        if entity_type in self.threads:
+            del self.threads[entity_type]
+
+        # Make sure it's marked as stopped in the state
+        self.state_manager.mark_export_stopped(entity_type)
+
+        # Now resume based on entity type (without force_restart)
+        export_methods = {
+            "leads": self.export_deals,
+            "contacts": self.export_contacts,
+            "companies": self.export_companies,
+            "events": self.export_events
+        }
+
+        if entity_type in export_methods:
+            log_event("exporter", "info", f"Resuming {entity_type} export")
+            export_methods[entity_type](force_restart=False)
+        else:
+            log_event("exporter", "error", f"Unknown entity type for resume: {entity_type}")

@@ -25,7 +25,7 @@ class ExcelExporter:
         if not os.path.exists(self.export_dir):
             os.makedirs(self.export_dir)
 
-    def export_all_to_excel(self) -> str:
+    def export_all_to_excel(self, date_from: str = None, date_to: str = None) -> str:
         """
         Export all entity data to a single Excel file with different sheets
         Returns the path to the created Excel file
@@ -34,12 +34,26 @@ class ExcelExporter:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{self.export_dir}/amocrm_export_{timestamp}.xlsx"
 
-            # Get all entity data
+            # Build MongoDB query for updated_at filter
+            query = {}
+            if date_from or date_to:
+                query["updated_at"] = {}
+                if date_from:
+                    from_dt = int(datetime.fromisoformat(date_from).timestamp())
+                    query["updated_at"]["$gte"] = from_dt
+                if date_to:
+                    to_dt = int(datetime.fromisoformat(date_to).timestamp())
+                    query["updated_at"]["$lte"] = to_dt
+                # Remove empty dict if neither from nor to is set
+                if not query["updated_at"]:
+                    del query["updated_at"]
+
+            # Get all entity data with filter
             entities_data = {
-                "leads": self.storage.get_entities("leads") or [],
-                "contacts": self.storage.get_entities("contacts") or [],
-                "companies": self.storage.get_entities("companies") or [],
-                "events": self.storage.get_entities("events") or []
+                "leads": self.storage.get_entities("leads", query=query) or [],
+                "contacts": self.storage.get_entities("contacts", query=query) or [],
+                "companies": self.storage.get_entities("companies", query=query) or [],
+                "events": self.storage.get_entities("events", query=query) or []
             }
 
             # Debug log the structure of the first item
