@@ -6,6 +6,7 @@ services:
     container_name: amo_app
     volumes:
       - ./data:/app/data
+      - ./credentials.json:/app/credentials.json
     ports:
       - "8000:8000"
     depends_on:
