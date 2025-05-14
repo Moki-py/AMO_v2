@@ -71,7 +71,7 @@ class Settings(BaseSettings):
 
     # MongoDB settings
     mongodb_uri: str = Field(
-        "mongodb://localhost:27017",
+        "mongodb://mongo:27017",
         alias="MONGODB_URI",
         description="MongoDB connection URI",
     )
