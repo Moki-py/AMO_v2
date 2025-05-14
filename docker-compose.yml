@@ -23,7 +23,7 @@ services:
       - mongo_data:/data/db
 
   mongo-express:
-    image: mongo-express:1.1.0-rc3
+    image: mongo-express:latest
     container_name: amo_mongo_express
     restart: always
     ports:
@@ -36,5 +36,21 @@ services:
       - ME_CONFIG_BASICAUTH_USERNAME=admin
       - ME_CONFIG_BASICAUTH_PASSWORD=admin
 
+  caddy:
+    image: caddy:2
+    container_name: amo_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
 volumes:
   mongo_data:
+  caddy_data:
+  caddy_config:
