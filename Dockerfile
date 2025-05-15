@@ -7,6 +7,7 @@ WORKDIR /app
 # Copy requirements and install dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir 'faststream[cli]'
 
 # Copy the rest of the application code
 COPY . .

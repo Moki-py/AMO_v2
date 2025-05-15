@@ -23,6 +23,8 @@ from excel_exporter import ExcelExporter
 from sheets_exporter import SheetsExporter
 import logger
 import config
+from state_manager import StateManager
+from message_broker import create_export_task, broker
 
 
 class ActionType(str, Enum):
@@ -79,6 +81,57 @@ app = FastAPI(
 # Setup templates
 templates = Jinja2Templates(directory="templates")
 
+# Initialize worker pool
+worker_pool = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize components on startup"""
+    # No need to manually start the broker - it will be handled by FastStream
+    log_event("api", "info", "Connected to RabbitMQ message broker")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    # Close the broker connection
+    await broker.close()
+    log_event("api", "info", "Closed connection to message broker")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    # Check connections to critical services
+    health_status = {
+        "status": "healthy",
+        "services": {}
+    }
+
+    # Check RabbitMQ connection
+    try:
+        # For FastStream 0.5.40, check if broker is connected
+        # using the _connection attribute which is set when connected
+        if hasattr(broker, "_connection") and broker._connection:
+            health_status["services"]["rabbitmq"] = "connected"
+        else:
+            health_status["services"]["rabbitmq"] = "disconnected"
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["rabbitmq"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    # Check MongoDB connection
+    try:
+        if storage.db is not None:
+            health_status["services"]["mongodb"] = "connected"
+        else:
+            health_status["services"]["mongodb"] = "disconnected"
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["mongodb"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    return health_status
 
 @app.get("/", response_class=HTMLResponse)
 async def get_root(request: Request):
@@ -373,6 +426,147 @@ async def get_webhook_events():
         log_event("webhook", "error", f"Error reading webhook events from MongoDB: {e}")
         events = []
     return {"events": events, "count": len(events)}
+
+# Worker API routes
+@app.get("/api/tasks")
+async def get_tasks():
+    """Get all export tasks"""
+    state_manager = StateManager()
+    return {"tasks": state_manager.get_all_tasks()}
+
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: str):
+    """Get details of a specific task"""
+    state_manager = StateManager()
+    task = state_manager.get_task_by_id(task_id)
+    if task:
+        return {"task": task}
+    return {"error": "Task not found"}
+
+@app.post("/api/tasks/export_deals")
+async def create_deals_export_task(
+    force_restart: bool = False,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    priority: int = 1
+):
+    """Create a task to export deals"""
+    task_id = await create_export_task(
+        entity_type="leads",
+        batch_save=batch_save,
+        batch_size=batch_size,
+        date_from=date_from,
+        date_to=date_to,
+        force_restart=force_restart,
+        priority=priority
+    )
+    return {"task_id": task_id}
+
+@app.post("/api/tasks/export_contacts")
+async def create_contacts_export_task(
+    force_restart: bool = False,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    priority: int = 1
+):
+    """Create a task to export contacts"""
+    task_id = await create_export_task(
+        entity_type="contacts",
+        batch_save=batch_save,
+        batch_size=batch_size,
+        date_from=date_from,
+        date_to=date_to,
+        force_restart=force_restart,
+        priority=priority
+    )
+    return {"task_id": task_id}
+
+@app.post("/api/tasks/export_companies")
+async def create_companies_export_task(
+    force_restart: bool = False,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    priority: int = 1
+):
+    """Create a task to export companies"""
+    task_id = await create_export_task(
+        entity_type="companies",
+        batch_save=batch_save,
+        batch_size=batch_size,
+        date_from=date_from,
+        date_to=date_to,
+        force_restart=force_restart,
+        priority=priority
+    )
+    return {"task_id": task_id}
+
+@app.post("/api/tasks/export_events")
+async def create_events_export_task(
+    force_restart: bool = False,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    priority: int = 1
+):
+    """Create a task to export events"""
+    task_id = await create_export_task(
+        entity_type="events",
+        batch_save=batch_save,
+        batch_size=batch_size,
+        date_from=date_from,
+        date_to=date_to,
+        force_restart=force_restart,
+        priority=priority
+    )
+    return {"task_id": task_id}
+
+@app.post("/api/tasks/export_all")
+async def create_all_export_tasks(
+    force_restart: bool = False,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    priority: int = 1
+):
+    """Create tasks to export all entity types"""
+    task_ids = []
+
+    # Create a task for each entity type
+    for entity_type in ["leads", "contacts", "companies", "events"]:
+        task_id = await create_export_task(
+            entity_type=entity_type,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+            force_restart=force_restart,
+            priority=priority
+        )
+        task_ids.append(task_id)
+
+    return {"task_ids": task_ids}
+
+@app.delete("/api/tasks/{task_id}")
+async def cancel_task(task_id: str):
+    """Cancel a pending task"""
+    state_manager = StateManager()
+    state_manager.update_task_status(task_id, "cancelled")
+    return {"status": "Task cancelled"}
+
+@app.get("/api/workers")
+async def get_worker_status():
+    """Get status of all workers"""
+    # This will need to be implemented differently with RabbitMQ
+    # For now, just return an empty list
+    return {"workers": []}
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run the FastAPI server"""

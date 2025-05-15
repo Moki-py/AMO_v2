@@ -19,6 +19,12 @@ class AmoCRMAPI:
         """Initialize the API client"""
         self.auth = Auth()
         self.last_request_time = 0
+        self.session = requests.Session()
+
+    async def close_session(self):
+        """Close the requests session"""
+        if hasattr(self, 'session'):
+            self.session.close()
 
     def _rate_limit(self):
         """Implement rate limiting for API requests"""
@@ -49,7 +55,7 @@ class AmoCRMAPI:
         headers = self._get_headers()
 
         try:
-            response = requests.request(
+            response = self.session.request(
                 method=method,
                 url=url,
                 headers=headers,
@@ -68,24 +74,24 @@ class AmoCRMAPI:
             log_event("api", "error", error_msg)
             raise
 
-    def get_deals_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+    def get_deals_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
         """Get a specific page of deals, optionally filtered by updated_at"""
         return self._get_entity_page("leads", page, date_from, date_to)
 
-    def get_contacts_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+    def get_contacts_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
         """Get a specific page of contacts, optionally filtered by updated_at"""
         return self._get_entity_page("contacts", page, date_from, date_to)
 
-    def get_companies_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+    def get_companies_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
         """Get a specific page of companies, optionally filtered by updated_at"""
         return self._get_entity_page("companies", page, date_from, date_to)
 
-    def get_events_page(self, page: int, date_from: str = None, date_to: str = None) -> tuple[list[dict[str, Any]], bool]:
+    def get_events_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
         """Get a specific page of events, optionally filtered by updated_at"""
         return self._get_entity_page("events", page, date_from, date_to)
 
     def _get_entity_page(
-        self, entity_type: str, page: int, date_from: str = None, date_to: str = None
+        self, entity_type: str, page: int, date_from: str | None = None, date_to: str | None = None
     ) -> tuple[list[dict[str, Any]], bool]:
         """
         Get a specific page of entities, optionally filtered by updated_at
