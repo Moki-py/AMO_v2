@@ -109,8 +109,9 @@ async def health_check():
 
     # Check RabbitMQ connection
     try:
-        # Check if broker is initialized rather than using is_connected property
-        if broker._broker:
+        # For FastStream 0.5.40, check if broker is connected
+        # using the _connection attribute which is set when connected
+        if hasattr(broker, "_connection") and broker._connection:
             health_status["services"]["rabbitmq"] = "connected"
         else:
             health_status["services"]["rabbitmq"] = "disconnected"
@@ -121,7 +122,7 @@ async def health_check():
 
     # Check MongoDB connection
     try:
-        if storage.db:
+        if storage.db is not None:
             health_status["services"]["mongodb"] = "connected"
         else:
             health_status["services"]["mongodb"] = "disconnected"

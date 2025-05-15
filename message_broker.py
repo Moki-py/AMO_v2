@@ -5,11 +5,12 @@ Message broker for AMO export tasks using FastStream with RabbitMQ
 import os
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from faststream import FastStream, Logger
-from faststream.rabbit import RabbitBroker, RabbitExchange, RabbitQueue, ExchangeType
+from faststream.rabbit import RabbitBroker
+from faststream.rabbit.schemas import ExchangeType, RabbitExchange, RabbitQueue
 from faststream import Context
 
 import config
@@ -63,13 +64,9 @@ max_retries = int(os.environ.get("MAX_RETRIES", "3"))
 batch_buffer_size = int(os.environ.get("BATCH_BUFFER_SIZE", "10"))
 retry_delay = int(os.environ.get("RETRY_DELAY", "5"))
 
-# Initialize broker with optimization settings
+# Initialize broker with correct parameters for FastStream 0.5.40
 broker = RabbitBroker(
-    rabbitmq_url,
-    # Reduce prefetch count to limit memory usage
-    prefetch_count=5,
-    # Add heartbeat to keep connection alive but not too frequent
-    heartbeat=60,
+    url=rabbitmq_url,
 )
 
 # Create FastStream app for CLI usage
@@ -77,47 +74,27 @@ app = FastStream(broker)
 
 # Define exchanges
 task_exchange = RabbitExchange(
-    "amo.tasks",
+    name="amo.tasks",
     type=ExchangeType.DIRECT,
     auto_delete=False
 )
 
 status_exchange = RabbitExchange(
-    "amo.status",
+    name="amo.status",
     type=ExchangeType.FANOUT,
     auto_delete=False
 )
 
-# Define queues
+# Define queues with new syntax for FastStream 0.5.40+
 task_queue = RabbitQueue(
-    "amo.tasks.queue",
-    exchange=task_exchange,
-    routing_key="export_task",
+    name="amo.tasks.queue",
     durable=True
 )
 
 status_queue = RabbitQueue(
-    "amo.status.queue",
-    exchange=status_exchange,
+    name="amo.status.queue",
     durable=True
 )
-
-
-# Declare exchanges and queues
-@broker.on_startup
-async def startup():
-    """Setup exchanges and queues on startup"""
-    log_event("broker", "info", "Setting up RabbitMQ exchanges and queues")
-
-    # Declare exchanges
-    await broker.declare_exchange(task_exchange)
-    await broker.declare_exchange(status_exchange)
-
-    # Declare queues
-    await broker.declare_queue(task_queue)
-    await broker.declare_queue(status_queue)
-
-    log_event("broker", "info", "RabbitMQ setup completed")
 
 
 # Initialize services for task handlers
@@ -131,17 +108,44 @@ class Services:
 services = Services()
 
 
-@broker.on_startup
-async def init_services():
-    """Initialize services on startup"""
-    log_event("broker", "info", "Initializing services")
+@app.on_startup
+async def startup():
+    """Setup exchanges and queues on startup"""
+    log_event("broker", "info", "Setting up RabbitMQ exchanges and queues")
+
+    # Configure RabbitMQ connection settings
+    # In FastStream 0.5.40, prefetch_count is set after connection
+    await broker.connect(connection_kwargs={"heartbeat": 60})
+
+    # Set prefetch count for channels
+    await broker.set_prefetch_count(5)
+
+    # Declare exchanges
+    await broker.declare_exchange(task_exchange)
+    await broker.declare_exchange(status_exchange)
+
+    # Declare queues with bindings
+    await broker.declare_queue(
+        task_queue,
+        task_exchange,
+        routing_key="export_task"
+    )
+
+    await broker.declare_queue(
+        status_queue,
+        status_exchange
+    )
+
+    # Initialize services
     services.api = AmoCRMAPI()
     services.storage = Storage()
     services.state_manager = StateManager()
+
+    log_event("broker", "info", "RabbitMQ setup completed")
     log_event("broker", "info", "Services initialized")
 
 
-@broker.on_shutdown
+@app.on_shutdown
 async def shutdown_services():
     """Clean up services on shutdown"""
     log_event("broker", "info", "Shutting down services")

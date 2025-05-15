@@ -10,6 +10,97 @@ FastStream has undergone significant changes between versions, which have affect
 - Updates to the RabbitMQ broker connection mechanisms
 - Changes in the Pydantic model serialization methods
 
+## Fixed Issues for FastStream 0.5.40
+
+1. **RabbitBroker Initialization**:
+   - Fixed error: `TypeError: RabbitBroker.__init__() got an unexpected keyword argument 'prefetch_count'`
+   - Updated initialization process to match new API:
+     ```python
+     # Old approach
+     broker = RabbitBroker(
+         rabbitmq_url,
+         prefetch_count=5,
+         heartbeat=60
+     )
+
+     # New approach (0.5.40)
+     broker = RabbitBroker(url=rabbitmq_url)
+     await broker.connect(connection_kwargs={"heartbeat": 60})
+     await broker.set_prefetch_count(5)
+     ```
+
+2. **Exchange and Queue Declarations**:
+   - Updated parameter names for RabbitExchange and RabbitQueue
+   - Fixed binding syntax for queue declarations:
+     ```python
+     # Old syntax
+     await broker.declare_queue(
+         queue,
+         exchange=exchange,
+         routing_key="key"
+     )
+
+     # New syntax (0.5.40)
+     await broker.declare_queue(
+         queue,
+         exchange,
+         routing_key="key"
+     )
+     ```
+
+3. **Import Path Changes**:
+   - Updated import paths for Exchange and Queue schemas:
+     ```python
+     # Old import
+     from faststream.rabbit import RabbitExchange, RabbitQueue, ExchangeType
+
+     # New import (0.5.40)
+     from faststream.rabbit.schemas import ExchangeType, RabbitExchange, RabbitQueue
+     ```
+
+4. **Health Check Connection Checking**:
+   - Updated how we check if the broker is connected:
+     ```python
+     # Old approach
+     if broker.is_connected:
+         # ...
+
+     # New approach (0.5.40)
+     if hasattr(broker, "_connection") and broker._connection:
+         # ...
+     ```
+
+5. **CLI Command Syntax**:
+   - Updated from `faststream run` to `python -m faststream run`
+   - Added proper Python module invocation for better compatibility
+
+6. **Lifecycle Hooks**:
+   - Changed from broker-level to app-level lifecycle hooks:
+     ```python
+     # Old approach
+     @broker.on_startup
+     async def startup():
+         # ...
+
+     # New approach (0.5.40)
+     @app.on_startup
+     async def startup():
+         # ...
+     ```
+
+## Upgrading
+
+We've created an upgrade script `upgrade_faststream.sh` that:
+
+1. Uninstalls any existing FastStream installation
+2. Installs FastStream 0.5.40+ with RabbitMQ and CLI support
+3. Verifies that the CLI tools are working
+
+Run the script with:
+```bash
+./upgrade_faststream.sh
+```
+
 ## Fixes Implemented
 
 1. **Updated CLI Command Syntax:**
