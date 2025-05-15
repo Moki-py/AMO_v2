@@ -1,41 +1,137 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
-    container_name: amo_app
-    volumes:
-      - ./data:/app/data
-      - ./credentials.json:/app/credentials.json
-    depends_on:
-      - mongo
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: amo_rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI port
     environment:
-      - MONGO_URL=mongodb://mongo:27017/amo_db
-    mem_limit: 1.2g
-    cpus: 0.7
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+      # Reduce management statistics interval to save resources
+      - RABBITMQ_MANAGEMENT_STATS_INTERVAL=30000
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 400M
+        reservations:
+          cpus: '0.1'
+          memory: 200M
 
-  mongo:
-    image: mongo:8.0
-    container_name: amo_mongo
-    restart: always
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amo_worker
+    command: python -m faststream run message_broker:app --workers 2
+    restart: unless-stopped
+    depends_on:
+      - rabbitmq
+      - mongodb
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - MONGO_URL=mongodb://mongodb:27017/amo_db
+      - MAX_RETRIES=2
+      - BATCH_BUFFER_SIZE=5
+      - RETRY_DELAY=10
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 400M
+        reservations:
+          cpus: '0.1'
+          memory: 150M
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amo_api
+    command: uvicorn modern_ui_server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      - rabbitmq
+      - mongodb
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - MONGO_URL=mongodb://mongodb:27017/amo_db
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 400M
+        reservations:
+          cpus: '0.1'
+          memory: 100M
+
+  mongodb:
+    image: mongo:latest
+    container_name: amo_mongodb
+    ports:
+      - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    mem_limit: 400m
-    cpus: 0.2
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 500M
+        reservations:
+          cpus: '0.1'
+          memory: 250M
+    command: --wiredTigerCacheSizeGB 0.25
 
   mongo-express:
     image: mongo-express:latest
     container_name: amo_mongo_express
-    restart: always
+    ports:
+      - "8081:8081"
     environment:
-      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
-      - ME_CONFIG_MONGODB_ADMINUSERNAME=
-      - ME_CONFIG_MONGODB_ADMINPASSWORD=
       - ME_CONFIG_BASICAUTH_USERNAME=admin
       - ME_CONFIG_BASICAUTH_PASSWORD=admin
-    mem_limit: 100m
-    cpus: 0.05
+    depends_on:
+      - mongodb
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 200M
+        reservations:
+          cpus: '0.01'
+          memory: 50M
 
   caddy:
     image: caddy:2
@@ -49,11 +145,19 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - app
+      - api
+    networks:
+      - amo_network
     mem_limit: 100m
     cpus: 0.05
 
 volumes:
+  rabbitmq_data:
   mongo_data:
   caddy_data:
   caddy_config:
+
+
+networks:
+  amo_network:
+    driver: bridge
