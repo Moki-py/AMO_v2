@@ -133,6 +133,22 @@ services:
           cpus: '0.01'
           memory: 50M
 
+  caddy:
+    image: caddy:2
+    container_name: amo_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    mem_limit: 100m
+    cpus: 0.05
+
 volumes:
   rabbitmq_data:
   mongo_data:
