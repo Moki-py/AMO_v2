@@ -76,6 +76,9 @@ broker = RabbitBroker(
     connections_max_keepalive=60
 )
 
+# Create FastStream app for CLI usage
+app = FastStream(broker)
+
 # Define exchanges
 task_exchange = RabbitExchange(
     "amo.tasks",
@@ -140,6 +143,29 @@ async def init_services():
     services.storage = Storage()
     services.state_manager = StateManager()
     log_event("broker", "info", "Services initialized")
+
+
+@broker.on_shutdown
+async def shutdown_services():
+    """Clean up services on shutdown"""
+    log_event("broker", "info", "Shutting down services")
+
+    # Close any open connections
+    if services.api:
+        await services.api.close_session()
+
+    # Update worker status to show it's shutting down
+    try:
+        # Generate a worker ID based on current process
+        worker_id = f"worker_{os.getpid()}"
+        await publish_worker_status(WorkerStatus(
+            worker_id=worker_id,
+            status="shutdown"
+        ))
+    except Exception as e:
+        log_event("broker", "error", f"Error updating worker status on shutdown: {e}")
+
+    log_event("broker", "info", "Services shut down")
 
 
 # Task handler for export tasks with resource optimization
@@ -375,7 +401,3 @@ async def create_export_task(
         services.state_manager.save_task(task.dict())
 
     return task.task_id
-
-
-# Application instance for server startup
-app = FastStream(broker)

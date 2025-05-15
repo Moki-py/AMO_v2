@@ -37,7 +37,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amo_worker
-    command: python run_worker.py --host rabbitmq --workers 2
+    command: faststream run message_broker:app --workers 2
     restart: unless-stopped
     depends_on:
       - rabbitmq
@@ -47,7 +47,11 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=guest
       - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - MONGO_URL=mongodb://mongodb:27017/amo_db
+      - MAX_RETRIES=2
+      - BATCH_BUFFER_SIZE=5
+      - RETRY_DELAY=10
     networks:
       - amo_network
     deploy:

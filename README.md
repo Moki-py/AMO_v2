@@ -430,107 +430,85 @@ python modern_ui_server.py --fetch-all --batch-size 20
 
 ## Scalable Worker System
 
-The application includes a scalable worker system for handling export tasks. Tasks are processed in a priority queue by a pool of worker threads.
+The system now implements a scalable worker architecture using RabbitMQ and FastStream for distributed task processing. This allows for better resource utilization and horizontal scaling.
 
-### REST API Endpoints
+### Key Components
 
-The following API endpoints are available for interacting with the worker system:
+- **Message Broker (RabbitMQ)**: Central message queue for distributing export tasks
+- **FastStream Framework**: Integration with RabbitMQ for worker orchestration
+- **Worker Processes**: Dedicated processes that handle export tasks
+- **Task Queue**: Prioritized queue for export jobs
 
-#### Get all tasks
-```
-GET /api/tasks
-```
+### Running the Worker System
 
-#### Get a specific task
-```
-GET /api/tasks/{task_id}
-```
+#### Standard Configuration
 
-#### Start a deals export task
-```
-POST /api/tasks/export_deals
+```bash
+# Start the entire system with RabbitMQ
+bash run_resource_constrained.sh
 ```
 
-Parameters:
-- `force_restart` (boolean, default: false): Reset export state before starting
-- `batch_save` (boolean, default: true): Save entities in batches
-- `batch_size` (integer, default: 10): Number of entities to save in each batch
-- `date_from` (string, optional): Export entities updated after this date
-- `date_to` (string, optional): Export entities updated before this date
-- `priority` (integer, default: 1): Task priority (lower = higher priority)
+This will start:
+- RabbitMQ message broker on port 5672
+- RabbitMQ management UI on port 15672
+- Two worker processes for export tasks
+- MongoDB for storage
+- Mongo Express UI on port 8081
 
-#### Start a contacts export task
-```
-POST /api/tasks/export_contacts
-```
+#### Minimal Resource Configuration
 
-Parameters: Same as export_deals
+For systems with very limited resources (1 CPU, ~1.8GB RAM):
 
-#### Start a companies export task
-```
-POST /api/tasks/export_companies
+```bash
+# Start minimal configuration
+bash run_resource_constrained.sh --minimal
 ```
 
-Parameters: Same as export_deals
+This starts a resource-optimized configuration:
+- RabbitMQ (without management UI)
+- Single worker process
+- MongoDB (without Mongo Express)
+- API server with minimal resource usage
 
-#### Start an events export task
-```
-POST /api/tasks/export_events
-```
+### Managing the Worker System
 
-Parameters: Same as export_deals
+- **View logs**: `bash run_resource_constrained.sh --logs`
+- **Shutdown**: `bash run_resource_constrained.sh --down`
 
-#### Start all export tasks
-```
-POST /api/tasks/export_all
-```
+### API for Task Management
 
-Parameters: Same as export_deals (applies to all entity types)
+The modern UI now includes API endpoints for managing export tasks:
 
-#### Cancel a task
-```
-DELETE /api/tasks/{task_id}
-```
+- `POST /api/tasks/export_deals` - Create deal export task
+- `POST /api/tasks/export_contacts` - Create contact export task
+- `POST /api/tasks/export_companies` - Create company export task
+- `POST /api/tasks/export_events` - Create event export task
+- `POST /api/tasks/export_all` - Create tasks for all entity types
+- `GET /api/tasks` - List all tasks
+- `GET /api/tasks/{task_id}` - Get task details
+- `GET /api/workers` - Get worker status
+- `GET /health` - Check system health
 
-#### Get worker status
-```
-GET /api/workers
-```
+### Resource Optimization
 
-### Benefits of the Worker System
+The system includes several optimizations for resource-constrained environments:
 
-1. **Scalability**: The worker pool can be scaled up by increasing the number of worker threads.
-2. **Fault Tolerance**: Failed tasks are retried automatically up to a configurable limit.
-3. **Prioritization**: Tasks can be assigned priorities to control execution order.
-4. **Resumable Operations**: Export operations can be paused and resumed.
-5. **Monitoring**: Task status and progress can be monitored through the API.
+1. **RabbitMQ Settings**:
+   - Memory watermark limits
+   - Reduced statistics collection
 
-### Implementation Details
+2. **Worker Process Management**:
+   - Configurable worker count
+   - Batch size optimization
+   - Retry mechanisms with backoff
 
-The worker system consists of the following components:
+3. **Docker Resource Limits**:
+   - CPU and memory constraints for each service
+   - Minimal container configuration options
 
-1. **WorkerPool**: Manages a pool of worker threads that process tasks from a shared queue.
-2. **Worker**: Individual worker that processes tasks from the queue.
-3. **TaskQueue**: Priority queue for managing tasks with thread-safe operations.
-4. **ExportTask**: Represents an export task with parameters and status information.
-5. **StateManager**: Manages task state persistence in MongoDB.
-
-Tasks are persisted in MongoDB, allowing them to be recovered if the application restarts.
-
-## Configuration
-
-The application uses environment variables for configuration. These can be set in the `.env` file.
-
-## Installation and Setup
-
-1. Clone the repository
-2. Install dependencies: `pip install -r requirements.txt`
-3. Configure MongoDB connection in `.env`
-4. Run the application: `python modern_ui_server.py`
-
-## License
-
-This project is proprietary software.
+4. **MongoDB Optimization**:
+   - Reduced cache size
+   - Constrained memory usage
 
 ## Message Queue-Based Worker System
 

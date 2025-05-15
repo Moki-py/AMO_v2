@@ -98,6 +98,40 @@ async def shutdown_event():
     await broker.close()
     log_event("api", "info", "Closed connection to message broker")
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    # Check connections to critical services
+    health_status = {
+        "status": "healthy",
+        "services": {}
+    }
+
+    # Check RabbitMQ connection
+    try:
+        # Simple check if broker is connected
+        if broker.is_connected:
+            health_status["services"]["rabbitmq"] = "connected"
+        else:
+            health_status["services"]["rabbitmq"] = "disconnected"
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["rabbitmq"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    # Check MongoDB connection
+    try:
+        if storage.db:
+            health_status["services"]["mongodb"] = "connected"
+        else:
+            health_status["services"]["mongodb"] = "disconnected"
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["services"]["mongodb"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    return health_status
+
 @app.get("/", response_class=HTMLResponse)
 async def get_root(request: Request):
     """Render the main UI"""
