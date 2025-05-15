@@ -146,12 +146,17 @@ services:
       - caddy_config:/config
     depends_on:
       - api
+    networks:
+      - amo_network
     mem_limit: 100m
     cpus: 0.05
 
 volumes:
   rabbitmq_data:
   mongo_data:
+  caddy_data:
+  caddy_config:
+
 
 networks:
   amo_network:
