@@ -94,7 +94,7 @@ def main():
     os.environ["RETRY_DELAY"] = str(args.retry_delay)
 
     # Prepare command for running FastStream CLI
-    cmd = ["faststream", "run", "message_broker:app"]
+    cmd = ["python", "-m", "faststream", "run", "message_broker:app"]
 
     if args.workers > 1:
         cmd.extend(["--workers", str(args.workers)])

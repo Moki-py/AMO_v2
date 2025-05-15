@@ -5,12 +5,11 @@ Message broker for AMO export tasks using FastStream with RabbitMQ
 import os
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional
 from pydantic import BaseModel, Field
 
 from faststream import FastStream, Logger
 from faststream.rabbit import RabbitBroker, RabbitExchange, RabbitQueue, ExchangeType
-from faststream.rabbit.annotations import message_handler
 from faststream import Context
 
 import config
@@ -71,9 +70,6 @@ broker = RabbitBroker(
     prefetch_count=5,
     # Add heartbeat to keep connection alive but not too frequent
     heartbeat=60,
-    # Connection pool settings
-    connections_max_size=2,
-    connections_max_keepalive=60
 )
 
 # Create FastStream app for CLI usage
@@ -398,6 +394,15 @@ async def create_export_task(
 
     # Save task to state manager
     if services.state_manager:
-        services.state_manager.save_task(task.dict())
+        try:
+            # Use model_dump() for Pydantic v2 compatibility
+            if hasattr(task, 'model_dump'):
+                task_data = task.model_dump()
+            else:
+                # Fallback for Pydantic v1 compatibility
+                task_data = task.dict()
+            services.state_manager.save_task(task_data)
+        except Exception as e:
+            log_event("broker", "error", f"Error saving task: {e}")
 
     return task.task_id

@@ -109,8 +109,8 @@ async def health_check():
 
     # Check RabbitMQ connection
     try:
-        # Simple check if broker is connected
-        if broker.is_connected:
+        # Check if broker is initialized rather than using is_connected property
+        if broker._broker:
             health_status["services"]["rabbitmq"] = "connected"
         else:
             health_status["services"]["rabbitmq"] = "disconnected"

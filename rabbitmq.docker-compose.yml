@@ -37,7 +37,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amo_worker
-    command: faststream run message_broker:app --workers 2
+    command: python -m faststream run message_broker:app --workers 2
     restart: unless-stopped
     depends_on:
       - rabbitmq
