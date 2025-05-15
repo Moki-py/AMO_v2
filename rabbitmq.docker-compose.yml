@@ -10,6 +10,10 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
+      # Memory optimization settings
+      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=0.4
+      # Reduce management statistics interval to save resources
+      - RABBITMQ_MANAGEMENT_STATS_INTERVAL=30000
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -19,13 +23,21 @@ services:
       retries: 5
     networks:
       - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 400M
+        reservations:
+          cpus: '0.1'
+          memory: 200M
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: amo_worker
-    command: python run_worker.py --host rabbitmq --workers 4
+    command: python run_worker.py --host rabbitmq --workers 2
     restart: unless-stopped
     depends_on:
       - rabbitmq
@@ -38,6 +50,14 @@ services:
       - MONGO_URL=mongodb://mongodb:27017/amo_db
     networks:
       - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 400M
+        reservations:
+          cpus: '0.1'
+          memory: 150M
 
   api:
     build:
@@ -59,6 +79,14 @@ services:
       - MONGO_URL=mongodb://mongodb:27017/amo_db
     networks:
       - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 300M
+        reservations:
+          cpus: '0.1'
+          memory: 100M
 
   mongodb:
     image: mongo:latest
@@ -69,6 +97,15 @@ services:
       - mongo_data:/data/db
     networks:
       - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 500M
+        reservations:
+          cpus: '0.1'
+          memory: 250M
+    command: --wiredTigerCacheSizeGB 0.25
 
   mongo-express:
     image: mongo-express:latest
@@ -84,6 +121,14 @@ services:
       - mongodb
     networks:
       - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 200M
+        reservations:
+          cpus: '0.01'
+          memory: 50M
 
 volumes:
   rabbitmq_data:

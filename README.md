@@ -603,3 +603,66 @@ You can monitor the RabbitMQ server using the management UI:
 - URL: http://localhost:15672
 - Username: guest
 - Password: guest
+
+### Resource-Constrained Deployment
+
+For systems with limited resources, two Docker Compose configurations are provided:
+
+1. **Standard Resource-Limited Configuration**:
+   ```bash
+   docker-compose -f rabbitmq.docker-compose.yml up -d
+   ```
+   - Suitable for systems with ~1 CPU and ~2GB RAM
+   - Includes RabbitMQ with management UI, 2 worker processes, API server, MongoDB, and Mongo Express
+   - Each service has CPU and memory limits configured
+
+2. **Minimal Development Configuration**:
+   ```bash
+   docker-compose -f minimal.docker-compose.yml up -d
+   ```
+   - For very resource-constrained environments (less than 1 CPU and 1GB RAM)
+   - Includes RabbitMQ (without management UI), 1 worker process, API server, and MongoDB
+   - No Mongo Express admin UI to save resources
+   - Minimal configuration settings for all services
+
+#### Using the Resource Constrained Script
+
+For convenience, a script is provided to easily run the application in resource-constrained mode:
+
+```bash
+# Start with standard resource-limited configuration
+./run_resource_constrained.sh
+
+# Start with minimal configuration for very limited resources
+./run_resource_constrained.sh --minimal
+
+# View logs
+./run_resource_constrained.sh --logs
+
+# Stop all services
+./run_resource_constrained.sh --down
+```
+
+The script sets appropriate environment variables to optimize the application for limited resources:
+- Reduced retry count for failed tasks
+- Smaller batch sizes
+- Longer retry delays to reduce resource contention
+
+#### Resource Allocation
+
+The configurations allocate resources as follows:
+
+**Standard configuration**:
+- RabbitMQ: 0.3 CPU, 400MB RAM
+- Worker: 0.3 CPU, 400MB RAM (2 worker processes)
+- API: 0.2 CPU, 300MB RAM
+- MongoDB: 0.15 CPU, 500MB RAM
+- Mongo Express: 0.05 CPU, 200MB RAM
+
+**Minimal configuration**:
+- RabbitMQ: 0.2 CPU, 300MB RAM
+- Worker: 0.2 CPU, 300MB RAM (1 worker process)
+- API: 0.1 CPU, 200MB RAM
+- MongoDB: 0.1 CPU, 300MB RAM
+
+These allocations ensure that the application can run efficiently even on resource-constrained environments.

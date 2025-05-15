@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3
+    container_name: amo_rabbitmq_min
+    ports:
+      - "5672:5672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=0.2
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 300M
+        reservations:
+          cpus: '0.05'
+          memory: 100M
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amo_worker_min
+    command: python run_worker.py --host rabbitmq --workers 1
+    restart: unless-stopped
+    depends_on:
+      - rabbitmq
+      - mongodb
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - MONGO_URL=mongodb://mongodb:27017/amo_db
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 300M
+        reservations:
+          cpus: '0.05'
+          memory: 100M
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amo_api_min
+    command: python modern_ui_server.py
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      - rabbitmq
+      - mongodb
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - MONGO_URL=mongodb://mongodb:27017/amo_db
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 200M
+        reservations:
+          cpus: '0.05'
+          memory: 100M
+
+  mongodb:
+    image: mongo:latest
+    container_name: amo_mongodb_min
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - amo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 300M
+        reservations:
+          cpus: '0.05'
+          memory: 100M
+    command: --wiredTigerCacheSizeGB 0.1
+
+volumes:
+  mongo_data:
+
+networks:
+  amo_network:
+    driver: bridge

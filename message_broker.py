@@ -59,8 +59,22 @@ rabbitmq_url = os.environ.get(
     "amqp://guest:guest@localhost:5672/"
 )
 
-# Initialize broker
-broker = RabbitBroker(rabbitmq_url)
+# Get resource constraints from environment
+max_retries = int(os.environ.get("MAX_RETRIES", "3"))
+batch_buffer_size = int(os.environ.get("BATCH_BUFFER_SIZE", "10"))
+retry_delay = int(os.environ.get("RETRY_DELAY", "5"))
+
+# Initialize broker with optimization settings
+broker = RabbitBroker(
+    rabbitmq_url,
+    # Reduce prefetch count to limit memory usage
+    prefetch_count=5,
+    # Add heartbeat to keep connection alive but not too frequent
+    heartbeat=60,
+    # Connection pool settings
+    connections_max_size=2,
+    connections_max_keepalive=60
+)
 
 # Define exchanges
 task_exchange = RabbitExchange(
@@ -128,7 +142,7 @@ async def init_services():
     log_event("broker", "info", "Services initialized")
 
 
-# Task handler for export tasks
+# Task handler for export tasks with resource optimization
 @broker.subscriber(task_queue)
 async def handle_export_task(
     task: ExportTask,
@@ -137,7 +151,7 @@ async def handle_export_task(
 ) -> None:
     """Handle export task messages"""
     worker_id = f"worker_{id(context)}"
-    logger.info(f"Worker {worker_id} received task {task.task_id} for {task.entity_type}")
+    logger.info(f"Worker {worker_id} received task {task.task_id}")
 
     # Update task status to processing
     await publish_status_update(TaskStatus(
@@ -165,7 +179,9 @@ async def handle_export_task(
     current_page = start_page
     batch = []
     retry_count = 0
-    max_retries = 3
+
+    # Use environment-based retry count
+    max_retry_count = max_retries
 
     try:
         # Get the appropriate page getter method for the entity type
@@ -241,11 +257,11 @@ async def handle_export_task(
                 retry_count += 1
 
                 # If max retries reached, abort export
-                if retry_count > max_retries:
+                if retry_count > max_retry_count:
                     raise ValueError(f"Max retries reached for {task.entity_type} export, aborting")
 
-                # Wait before retrying
-                await asyncio.sleep(5)
+                # Wait before retrying - use configured delay
+                await asyncio.sleep(retry_delay)
 
         # Save any remaining entities in batch
         if batch and services.storage:
