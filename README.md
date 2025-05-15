@@ -14,6 +14,8 @@
 - [Экспортируемые данные](#экспортируемые-данные)
 - [Решение типичных проблем](#решение-типичных-проблем)
 - [Расширение функциональности](#расширение-функциональности)
+- [Scalable Worker System](#scalable-worker-system)
+- [Message Queue-Based Worker System](#message-queue-based-worker-system)
 
 ## Основные возможности
 
@@ -425,3 +427,179 @@ python modern_ui_server.py --fetch-all --batch-size 20
    ```
 
 4. **Используйте индексы в MongoDB** для ускорения запросов
+
+## Scalable Worker System
+
+The application includes a scalable worker system for handling export tasks. Tasks are processed in a priority queue by a pool of worker threads.
+
+### REST API Endpoints
+
+The following API endpoints are available for interacting with the worker system:
+
+#### Get all tasks
+```
+GET /api/tasks
+```
+
+#### Get a specific task
+```
+GET /api/tasks/{task_id}
+```
+
+#### Start a deals export task
+```
+POST /api/tasks/export_deals
+```
+
+Parameters:
+- `force_restart` (boolean, default: false): Reset export state before starting
+- `batch_save` (boolean, default: true): Save entities in batches
+- `batch_size` (integer, default: 10): Number of entities to save in each batch
+- `date_from` (string, optional): Export entities updated after this date
+- `date_to` (string, optional): Export entities updated before this date
+- `priority` (integer, default: 1): Task priority (lower = higher priority)
+
+#### Start a contacts export task
+```
+POST /api/tasks/export_contacts
+```
+
+Parameters: Same as export_deals
+
+#### Start a companies export task
+```
+POST /api/tasks/export_companies
+```
+
+Parameters: Same as export_deals
+
+#### Start an events export task
+```
+POST /api/tasks/export_events
+```
+
+Parameters: Same as export_deals
+
+#### Start all export tasks
+```
+POST /api/tasks/export_all
+```
+
+Parameters: Same as export_deals (applies to all entity types)
+
+#### Cancel a task
+```
+DELETE /api/tasks/{task_id}
+```
+
+#### Get worker status
+```
+GET /api/workers
+```
+
+### Benefits of the Worker System
+
+1. **Scalability**: The worker pool can be scaled up by increasing the number of worker threads.
+2. **Fault Tolerance**: Failed tasks are retried automatically up to a configurable limit.
+3. **Prioritization**: Tasks can be assigned priorities to control execution order.
+4. **Resumable Operations**: Export operations can be paused and resumed.
+5. **Monitoring**: Task status and progress can be monitored through the API.
+
+### Implementation Details
+
+The worker system consists of the following components:
+
+1. **WorkerPool**: Manages a pool of worker threads that process tasks from a shared queue.
+2. **Worker**: Individual worker that processes tasks from the queue.
+3. **TaskQueue**: Priority queue for managing tasks with thread-safe operations.
+4. **ExportTask**: Represents an export task with parameters and status information.
+5. **StateManager**: Manages task state persistence in MongoDB.
+
+Tasks are persisted in MongoDB, allowing them to be recovered if the application restarts.
+
+## Configuration
+
+The application uses environment variables for configuration. These can be set in the `.env` file.
+
+## Installation and Setup
+
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Configure MongoDB connection in `.env`
+4. Run the application: `python modern_ui_server.py`
+
+## License
+
+This project is proprietary software.
+
+## Message Queue-Based Worker System
+
+The application now supports a scalable, distributed worker system using RabbitMQ and FastStream. This architecture allows for better scalability, resilience, and resource utilization.
+
+### Features
+
+- **Distributed Processing**: Run multiple worker processes across different machines
+- **Message Durability**: Tasks are persisted in RabbitMQ queues, surviving application restarts
+- **Automatic Retries**: Failed tasks are automatically retried
+- **Priority Queuing**: Tasks can be prioritized for execution
+- **Monitoring**: Task status and progress can be tracked in real-time
+- **Horizontal Scaling**: Add more workers to handle increased load
+
+### Architecture
+
+The system consists of the following components:
+
+1. **RabbitMQ**: Message broker for task distribution
+2. **FastStream**: Python library for interacting with RabbitMQ
+3. **Worker Processes**: Consume tasks from queues and process them
+4. **API Server**: Publishes tasks to queues and provides status information
+
+### Running with Docker Compose
+
+The easiest way to run the system is using the provided Docker Compose file:
+
+```bash
+docker-compose -f rabbitmq.docker-compose.yml up -d
+```
+
+This will start:
+- RabbitMQ server with management UI (port 15672)
+- Multiple worker instances
+- API server (port 8000)
+- MongoDB (port 27017)
+- Mongo Express UI (port 8081)
+
+### Running Workers Manually
+
+To run workers manually:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run a worker with 4 processes
+python run_worker.py --workers 4
+
+# Enable hot reload for development
+python run_worker.py --reload
+
+# Connect to a specific RabbitMQ instance
+python run_worker.py --host rabbitmq.example.com --port 5672 --user myuser --password mypass
+```
+
+### Environment Variables
+
+The following environment variables can be set to configure the system:
+
+- `RABBITMQ_HOST`: RabbitMQ server hostname
+- `RABBITMQ_PORT`: RabbitMQ server port
+- `RABBITMQ_USER`: RabbitMQ username
+- `RABBITMQ_PASSWORD`: RabbitMQ password
+- `RABBITMQ_URL`: Full RabbitMQ connection URL (overrides individual settings)
+
+### Monitoring
+
+You can monitor the RabbitMQ server using the management UI:
+- URL: http://localhost:15672
+- Username: guest
+- Password: guest
