@@ -11,6 +11,7 @@ services:
       - mongo
     environment:
       - MONGO_URL=mongodb://mongo:27017/amo_db
+    restart: always
     mem_limit: 1.2g
     cpus: 0.7
 
