@@ -261,7 +261,7 @@ async def handle_status_update(status: TaskStatus, ctx: Context):
 
 async def publish_worker_status(status: WorkerStatus):
     """Publish worker status update"""
-    log_event("broker", "info", f"Worker {status.worker_id} status: {status.status}")
+    log_event("broker", "info", f"Publishing worker status: {status.worker_id}")
 
     # Use model_dump() for Pydantic v2 compatibility
     if hasattr(status, 'model_dump'):
@@ -273,23 +273,62 @@ async def publish_worker_status(status: WorkerStatus):
     await broker.publish(status_data, exchange=status_exchange)
 
 
+async def create_export_task(
+    entity_type: str,
+    batch_save: bool = True,
+    batch_size: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    force_restart: bool = False,
+    priority: int = 1
+) -> str:
+    """
+    Create and publish a new export task to the message broker.
+
+    Args:
+        entity_type: Type of entity to export (deals, contacts, companies, events)
+        batch_save: Whether to save data in batches
+        batch_size: Size of each batch when saving
+        date_from: Start date for data filtering in ISO format
+        date_to: End date for data filtering in ISO format
+        force_restart: Whether to force restart if export is already running
+        priority: Task priority (lower number = higher priority)
+
+    Returns:
+        task_id: The ID of the created task
+    """
+    # Create task object
+    task = ExportTask(
+        entity_type=entity_type,
+        batch_save=batch_save,
+        batch_size=batch_size,
+        date_from=date_from,
+        date_to=date_to,
+        force_restart=force_restart,
+        priority=priority
+    )
+
+    log_event(
+        "broker",
+        "info",
+        f"Creating export task: {task.entity_type} (ID: {task.task_id})"
+    )
+
+    # Use model_dump() for Pydantic v2 compatibility
+    if hasattr(task, 'model_dump'):
+        task_data = task.model_dump()
+    else:
+        # Fallback for Pydantic v1 compatibility
+        task_data = task.dict()
+
+    # Publish to task exchange
+    await broker.publish(task_data, exchange=task_exchange)
+
+    return task.task_id
+
+
 @app.on_shutdown
 async def shutdown_services():
-    """Clean up services on shutdown"""
+    """Shutdown services when the app is shutting down"""
     log_event("broker", "info", "Shutting down services")
-
-    # Close any open connections
-    if services.api:
-        await services.api.close_session()
-
-    # Publish worker shutdown status
-    try:
-        worker_id = f"worker_{os.getpid()}"
-        await publish_worker_status(WorkerStatus(
-            worker_id=worker_id,
-            status="shutdown",
-        ))
-    except Exception as e:
-        log_event("broker", "error", f"Error publishing shutdown status: {e}")
-
-    log_event("broker", "info", "Services shutdown completed")
+    # Nothing specific to clean up at this point
