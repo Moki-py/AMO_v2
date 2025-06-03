@@ -21,6 +21,7 @@ from storage import Storage
 from parallel_exporter import ParallelExporter
 from excel_exporter import ExcelExporter
 from sheets_exporter import SheetsExporter
+from export_settings import ExportSettingsManager, EntityType as ExportEntityType, ExportSettings, FieldInfo
 import logger
 import config
 from state_manager import StateManager
@@ -64,6 +65,7 @@ logger.init_storage(storage)
 exporter = ParallelExporter()
 excel_exporter = ExcelExporter(storage)
 sheets_exporter = SheetsExporter(storage)
+export_settings_manager = ExportSettingsManager(storage)
 
 # Auto-continue exports that were still marked as running
 def continue_running_exports():
@@ -150,6 +152,12 @@ async def health_check():
 async def get_root(request: Request):
     """Render the main UI"""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/export-settings", response_class=HTMLResponse)
+async def render_export_settings_page(request: Request):
+    """Render the export settings UI"""
+    return templates.TemplateResponse("export-settings.html", {"request": request})
 
 
 @app.get("/stats")
@@ -580,10 +588,219 @@ async def cancel_task(task_id: str):
 
 @app.get("/api/workers")
 async def get_worker_status():
-    """Get status of all workers"""
-    # This will need to be implemented differently with RabbitMQ
-    # For now, just return an empty list
-    return {"workers": []}
+    """Get status of worker processes"""
+    try:
+        return {"status": "running", "workers": []}
+    except Exception as e:
+        log_event("server", "error", f"Error getting worker status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Export Settings API Endpoints
+
+@app.get("/api/export-settings/fields/{entity_type}")
+async def get_available_fields(entity_type: str, force_refresh: bool = False):
+    """Get available fields for an entity type"""
+    try:
+        # Convert to ExportEntityType
+        if entity_type.lower() == "deals":
+            export_entity_type = ExportEntityType.DEALS
+        elif entity_type.lower() == "contacts":
+            export_entity_type = ExportEntityType.CONTACTS
+        elif entity_type.lower() == "companies":
+            export_entity_type = ExportEntityType.COMPANIES
+        elif entity_type.lower() == "events":
+            export_entity_type = ExportEntityType.EVENTS
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        fields = await export_settings_manager.get_available_fields(export_entity_type, force_refresh)
+        return {
+            "entity_type": entity_type,
+            "fields": [field.to_dict() for field in fields],
+            "total_count": len(fields)
+        }
+    except Exception as e:
+        log_event("export_settings", "error", f"Error getting fields for {entity_type}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-settings/preview/{entity_type}/{field_name}")
+async def get_field_preview(entity_type: str, field_name: str, limit: int = 10):
+    """Get preview data for a specific field"""
+    try:
+        # Convert to ExportEntityType
+        if entity_type.lower() == "deals":
+            export_entity_type = ExportEntityType.DEALS
+        elif entity_type.lower() == "contacts":
+            export_entity_type = ExportEntityType.CONTACTS
+        elif entity_type.lower() == "companies":
+            export_entity_type = ExportEntityType.COMPANIES
+        elif entity_type.lower() == "events":
+            export_entity_type = ExportEntityType.EVENTS
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        preview_data = await export_settings_manager.get_field_preview_data(
+            export_entity_type, field_name, limit
+        )
+
+        return {
+            "entity_type": entity_type,
+            "field_name": field_name,
+            "preview_data": preview_data
+        }
+    except Exception as e:
+        log_event("export_settings", "error", f"Error getting preview for {field_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export-settings")
+async def save_export_settings(settings_data: dict):
+    """Save export settings"""
+    try:
+        # Validate required fields
+        required_fields = ['entity_type', 'selected_fields', 'field_order', 'name']
+        for field in required_fields:
+            if field not in settings_data:
+                raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+        # Create ExportSettings object
+        export_settings = ExportSettings(
+            entity_type=settings_data['entity_type'],
+            selected_fields=settings_data['selected_fields'],
+            field_order=settings_data['field_order'],
+            filters=settings_data.get('filters', {}),
+            name=settings_data['name'],
+            description=settings_data.get('description')
+        )
+
+        settings_id = await export_settings_manager.save_export_settings(export_settings)
+
+        return {
+            "success": True,
+            "settings_id": settings_id,
+            "message": "Export settings saved successfully"
+        }
+    except Exception as e:
+        log_event("export_settings", "error", f"Error saving export settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-settings")
+async def list_export_settings(entity_type: Optional[str] = None):
+    """List all saved export settings"""
+    try:
+        export_entity_type = None
+        if entity_type:
+            if entity_type.lower() == "deals":
+                export_entity_type = ExportEntityType.DEALS
+            elif entity_type.lower() == "contacts":
+                export_entity_type = ExportEntityType.CONTACTS
+            elif entity_type.lower() == "companies":
+                export_entity_type = ExportEntityType.COMPANIES
+            elif entity_type.lower() == "events":
+                export_entity_type = ExportEntityType.EVENTS
+            else:
+                raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        settings_list = await export_settings_manager.list_export_settings(export_entity_type)
+
+        return {
+            "settings": settings_list,
+            "total_count": len(settings_list)
+        }
+    except Exception as e:
+        log_event("export_settings", "error", f"Error listing export settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-settings/{settings_id}")
+async def get_export_settings(settings_id: str):
+    """Get specific export settings by ID"""
+    try:
+        settings = await export_settings_manager.load_export_settings(settings_id)
+        if not settings:
+            raise HTTPException(status_code=404, detail="Export settings not found")
+
+        return {
+            "settings": settings.to_dict(),
+            "settings_id": settings_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("export_settings", "error", f"Error getting export settings {settings_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/export-settings/{settings_id}")
+async def update_export_settings(settings_id: str, settings_data: dict):
+    """Update existing export settings"""
+    try:
+        # Load existing settings
+        existing_settings = await export_settings_manager.load_export_settings(settings_id)
+        if not existing_settings:
+            raise HTTPException(status_code=404, detail="Export settings not found")
+
+        # Update with new data
+        updated_settings = ExportSettings(
+            entity_type=settings_data.get('entity_type', existing_settings.entity_type),
+            selected_fields=settings_data.get('selected_fields', existing_settings.selected_fields),
+            field_order=settings_data.get('field_order', existing_settings.field_order),
+            filters=settings_data.get('filters', existing_settings.filters),
+            name=settings_data.get('name', existing_settings.name),
+            description=settings_data.get('description', existing_settings.description),
+            created_at=existing_settings.created_at
+        )
+
+        # Delete old settings and save new ones
+        await export_settings_manager.delete_export_settings(settings_id)
+        new_settings_id = await export_settings_manager.save_export_settings(updated_settings)
+
+        return {
+            "success": True,
+            "settings_id": new_settings_id,
+            "message": "Export settings updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("export_settings", "error", f"Error updating export settings {settings_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/export-settings/{settings_id}")
+async def delete_export_settings(settings_id: str):
+    """Delete export settings"""
+    try:
+        success = await export_settings_manager.delete_export_settings(settings_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Export settings not found")
+
+        return {
+            "success": True,
+            "message": "Export settings deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("export_settings", "error", f"Error deleting export settings {settings_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export-settings/clear-cache")
+async def clear_export_settings_cache():
+    """Clear export settings cache"""
+    try:
+        await export_settings_manager.clear_cache()
+        return {
+            "success": True,
+            "message": "Cache cleared successfully"
+        }
+    except Exception as e:
+        log_event("export_settings", "error", f"Error clearing cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run the FastAPI server"""
