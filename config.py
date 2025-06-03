@@ -5,11 +5,23 @@ Configuration for AmoCRM exporter using pydantic-settings and .env
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, PositiveInt
+from pydantic import Field, PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Basic Auth settings
+    basic_auth_username: str = Field(
+        "admin",
+        alias="BASIC_AUTH_USERNAME",
+        description="Username for basic authentication"
+    )
+    basic_auth_password: SecretStr = Field(
+        "change_this_password",
+        alias="BASIC_AUTH_PASSWORD",
+        description="Password for basic authentication"
+    )
+
     # Integration mode: 'oauth' or 'longterm'
     integration_mode: Optional[str] = Field(
         None,

@@ -11,7 +11,7 @@ from typing import Callable, Dict, Any, Optional
 from datetime import datetime
 from pymongo import MongoClient
 
-from fastapi import FastAPI, HTTPException, Request, Header, Query
+from fastapi import FastAPI, HTTPException, Request, Header, Query, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -25,6 +25,7 @@ import logger
 import config
 from state_manager import StateManager
 from message_broker import create_export_task, broker
+from auth import verify_basic_auth
 
 
 class ActionType(str, Enum):
@@ -146,20 +147,29 @@ async def health_check():
 
     return health_status
 
+@app.get("/login", response_class=HTMLResponse)
+async def get_login(request: Request):
+    """Render the login page"""
+    return templates.TemplateResponse("login.html", {"request": request})
+
 @app.get("/", response_class=HTMLResponse)
-async def get_root(request: Request):
+async def get_root(request: Request, authenticated: bool = Depends(verify_basic_auth)):
     """Render the main UI"""
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/stats")
-async def stats() -> dict:
+async def stats(authenticated: bool = Depends(verify_basic_auth)) -> dict:
     """Return statistics"""
     return get_stats()
 
 
 @app.get("/logs")
-async def logs(entity: str | None = None, level: str | None = None) -> dict:
+async def logs(
+    entity: str | None = None,
+    level: str | None = None,
+    authenticated: bool = Depends(verify_basic_auth)
+) -> dict:
     """Return recent logs with optional filtering by entity type and log level"""
     try:
         logs = logger.get_recent_logs(count=30, entity=entity, level=level)
@@ -172,7 +182,8 @@ async def logs(entity: str | None = None, level: str | None = None) -> dict:
 @app.post("/fetch/all")
 async def fetch_all_handler(
     date_from: str = Query(None),
-    date_to: str = Query(None)
+    date_to: str = Query(None),
+    authenticated: bool = Depends(verify_basic_auth)
 ) -> dict:
     await fetch_all(date_from, date_to)
     return {"success": True}
@@ -182,7 +193,8 @@ async def fetch_all_handler(
 async def fetch_entity_handler(
     entity: EntityType,
     date_from: str = Query(None),
-    date_to: str = Query(None)
+    date_to: str = Query(None),
+    authenticated: bool = Depends(verify_basic_auth)
 ) -> dict:
     if entity not in [
         EntityType.DEALS,
@@ -200,125 +212,106 @@ async def fetch_entity_handler(
 
 
 @app.post("/state/clear-running")
-async def clear_running_exports() -> dict:
-    """Clear all running exports to allow server restart"""
+async def clear_running_exports(authenticated: bool = Depends(verify_basic_auth)) -> dict:
+    """Clear all running export flags"""
     try:
-        exporter.state_manager.clear_running_exports()
-        log_event("server", "info", "Cleared all running exports")
-        return {"success": True, "message": "All running exports cleared"}
+        exporter.clear_running_exports()
+        return {"success": True}
     except Exception as e:
         log_event("server", "error", f"Error clearing running exports: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/state/reset")
-async def reset_all_state() -> dict:
-    """Reset all export state including running exports"""
+async def reset_all_state(authenticated: bool = Depends(verify_basic_auth)) -> dict:
+    """Reset all state"""
     try:
-        exporter.state_manager.reset_all_state()
-        log_event("server", "info", "Reset all export state")
-        return {"success": True, "message": "All export state has been reset"}
+        exporter.reset_all_state()
+        return {"success": True}
     except Exception as e:
         log_event("server", "error", f"Error resetting state: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/export-status")
-async def export_status() -> dict:
-    """Return the status of all exports"""
-    return {"status": exporter.get_export_status()}
+async def export_status(authenticated: bool = Depends(verify_basic_auth)) -> dict:
+    """Get export status"""
+    return exporter.get_export_status()
 
 
 @app.post("/export/restart/{entity}")
-async def restart_export_handler(entity: EntityType) -> dict:
-    """Forcibly restart an export regardless of its current state"""
+async def restart_export_handler(
+    entity: EntityType,
+    authenticated: bool = Depends(verify_basic_auth)
+) -> dict:
+    """Restart export for entity"""
     try:
-        if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
-                exporter.restart_export(e.value)
-            log_event("server", "info", "Restarting all exports")
-            return {"success": True, "message": "All exports are being restarted"}
-        else:
-            exporter.restart_export(entity.value)
-            log_event("server", "info", f"Restarting {entity.value} export")
-            return {"success": True, "message": f"{entity.value} export is being restarted"}
+        await exporter.restart_export(entity)
+        return {"success": True}
     except Exception as e:
-        log_event("server", "error", f"Error restarting export: {e}")
+        log_event("server", "error", f"Error restarting export for {entity}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/export/stop/{entity}")
-async def stop_export_handler(entity: EntityType) -> dict:
-    """Stop a running export"""
+async def stop_export_handler(
+    entity: EntityType,
+    authenticated: bool = Depends(verify_basic_auth)
+) -> dict:
+    """Stop export for entity"""
     try:
-        if entity == EntityType.ALL:
-            exporter.stop_all_exports()
-            log_event("server", "info", "Stopping all exports")
-            return {"success": True, "message": "All exports are being stopped"}
-        else:
-            exporter.stop_export(entity.value)
-            log_event("server", "info", f"Stopping {entity.value} export")
-            return {"success": True, "message": f"{entity.value} export is being stopped"}
+        exporter.stop_export(entity)
+        return {"success": True}
     except Exception as e:
-        log_event("server", "error", f"Error stopping export: {e}")
+        log_event("server", "error", f"Error stopping export for {entity}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/export/resume/{entity}")
-async def resume_export_handler(entity: EntityType) -> dict:
-    """Resume an export from the last saved page without resetting state"""
+async def resume_export_handler(
+    entity: EntityType,
+    authenticated: bool = Depends(verify_basic_auth)
+) -> dict:
+    """Resume export for entity"""
     try:
-        if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
-                exporter.resume_export(e.value)
-            log_event("server", "info", "Resuming all exports")
-            return {"success": True, "message": "All exports are being resumed"}
-        else:
-            exporter.resume_export(entity.value)
-            log_event("server", "info", f"Resuming {entity.value} export")
-            return {"success": True, "message": f"{entity.value} export is being resumed"}
+        await exporter.resume_export(entity)
+        return {"success": True}
     except Exception as e:
-        log_event("server", "error", f"Error resuming export: {e}")
+        log_event("server", "error", f"Error resuming export for {entity}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/export/excel")
 async def export_excel_handler(
     date_from: str = Query(None),
-    date_to: str = Query(None)
+    date_to: str = Query(None),
+    authenticated: bool = Depends(verify_basic_auth)
 ):
+    """Export to Excel"""
     try:
-        excel_file = excel_exporter.export_all_to_excel(
-            date_from=date_from, date_to=date_to
-        )
-        log_event(
-            "server", "info", f"Excel export generated: {excel_file}"
-        )
+        filename = await excel_exporter.export_to_excel(date_from, date_to)
         return FileResponse(
-            path=excel_file,
-            filename=os.path.basename(excel_file),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            filename,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=os.path.basename(filename)
         )
     except Exception as e:
-        log_event("server", "error", f"Error generating Excel export: {e}")
+        log_event("server", "error", f"Error exporting to Excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/export/sheets")
 async def export_sheets_handler(
     date_from: str = Query(None),
-    date_to: str = Query(None)
+    date_to: str = Query(None),
+    authenticated: bool = Depends(verify_basic_auth)
 ):
+    """Export to Google Sheets"""
     try:
-        sheets_url = sheets_exporter.export_all_to_sheets(
-            date_from=date_from, date_to=date_to
-        )
-        log_event(
-            "server", "info", f"Google Sheets export generated: {sheets_url}"
-        )
-        return {"url": sheets_url}
+        spreadsheet_url = await sheets_exporter.export_to_sheets(date_from, date_to)
+        return {"spreadsheet_url": spreadsheet_url}
     except Exception as e:
-        log_event("server", "error", f"Error generating Google Sheets export: {e}")
+        log_event("server", "error", f"Error exporting to Google Sheets: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

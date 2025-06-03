@@ -512,15 +512,88 @@
     </style>
 </head>
 <body>
+    <script>
+        // Authentication check
+        function checkAuth() {
+            const auth = sessionStorage.getItem('auth');
+            if (!auth) {
+                window.location.href = '/login';
+                return false;
+            }
+            return true;
+        }
+
+        // Add auth header to all fetch requests
+        function fetchWithAuth(url, options = {}) {
+            const auth = sessionStorage.getItem('auth');
+            if (!auth) {
+                window.location.href = '/login';
+                return;
+            }
+
+            const headers = {
+                ...options.headers,
+                'Authorization': 'Basic ' + auth
+            };
+
+            return fetch(url, { ...options, headers })
+                .then(response => {
+                    if (response.status === 401) {
+                        sessionStorage.removeItem('auth');
+                        window.location.href = '/login';
+                        return;
+                    }
+                    return response;
+                });
+        }
+
+        // Replace all fetch calls with fetchWithAuth
+        function updateStats() {
+            if (!checkAuth()) return;
+
+            fetchWithAuth('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('dealsCount').textContent = data.deals || 0;
+                    document.getElementById('contactsCount').textContent = data.contacts || 0;
+                    document.getElementById('companiesCount').textContent = data.companies || 0;
+                    document.getElementById('eventsCount').textContent = data.events || 0;
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updateLogs() {
+            if (!checkAuth()) return;
+
+            fetchWithAuth('/logs')
+                .then(response => response.json())
+                .then(data => {
+                    // ... existing logs update code ...
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Add logout function
+        function logout() {
+            sessionStorage.removeItem('auth');
+            window.location.href = '/login';
+        }
+    </script>
+
     <header>
         <div class="header-content">
-            <h1><i class="fas fa-sync"></i> AmoCRM Data Exporter</h1>
-            <div class="auto-refresh">
-                <span>Auto-refresh</span>
-                <label class="toggle">
-                    <input type="checkbox" id="autoRefresh" checked>
-                    <span class="slider"></span>
-                </label>
+            <h1><i class="fas fa-database"></i> AmoCRM Data Exporter</h1>
+            <div class="header-actions">
+                <div class="auto-refresh">
+                    <span>Auto-refresh</span>
+                    <label class="toggle">
+                        <input type="checkbox" id="autoRefresh">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <button onclick="logout()" class="btn btn-text" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -666,6 +739,11 @@
     </div>
 
     <script>
+        // Initialize auth check
+        if (!checkAuth()) {
+            throw new Error('Not authenticated');
+        }
+
         // Auto-refresh functionality
         let autoRefreshInterval;
         const autoRefreshCheckbox = document.getElementById('autoRefresh');
@@ -691,25 +769,8 @@
 
         // Update data function
         function updateData() {
-            fetch('/stats')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('dealsCount').textContent = data.deals || 0;
-                    document.getElementById('contactsCount').textContent = data.contacts || 0;
-                    document.getElementById('companiesCount').textContent = data.companies || 0;
-                    document.getElementById('eventsCount').textContent = data.events || 0;
-                });
-
-            fetch('/export-status')
-                .then(response => response.json())
-                .then(data => {
-                    updateExportStatus('deals', data.status.leads);
-                    updateExportStatus('contacts', data.status.contacts);
-                    updateExportStatus('companies', data.status.companies);
-                    updateExportStatus('events', data.status.events);
-                });
-
-            applyFilters();
+            updateStats();
+            updateLogs();
         }
 
         // Update export status

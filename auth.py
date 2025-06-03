@@ -1,15 +1,49 @@
 """
-Authentication module for AmoCRM API using long-term token
+Authentication module for AmoCRM API using long-term token and basic auth for web interface
 """
 
 import json
 import os
+import secrets
+from typing import Optional, Tuple
 import requests
 from datetime import datetime, timedelta
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 import config
 from logger import log_event
 
+# Initialize HTTP Basic security
+security = HTTPBasic()
+
+def get_auth_credentials() -> Tuple[str, str]:
+    """Get basic auth credentials from config"""
+    username = config.settings.basic_auth_username
+    password = config.settings.basic_auth_password.get_secret_value()
+    return username, password
+
+async def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)) -> bool:
+    """Verify basic auth credentials"""
+    correct_username, correct_password = get_auth_credentials()
+
+    is_correct_username = secrets.compare_digest(
+        credentials.username.encode("utf8"),
+        correct_username.encode("utf8")
+    )
+    is_correct_password = secrets.compare_digest(
+        credentials.password.encode("utf8"),
+        correct_password.encode("utf8")
+    )
+
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return True
 
 class Auth:
     """Handle AmoCRM authentication with long-term token"""
