@@ -39,10 +39,17 @@ class EntityType(str, Enum):
     """Types of entities that can be exported"""
 
     ALL = "all"
-    DEALS = "deals"
+    DEALS = "leads"  # Using leads internally for deals
     CONTACTS = "contacts"
     COMPANIES = "companies"
     EVENTS = "events"
+
+    @staticmethod
+    def normalize(entity_type: str) -> str:
+        """Normalize entity type to internal representation"""
+        if entity_type in ["deals", "leads"]:
+            return "leads"
+        return entity_type
 
 
 # Create global instances
@@ -175,11 +182,15 @@ async def fetch_entity_handler(
         EntityType.DEALS,
         EntityType.CONTACTS,
         EntityType.COMPANIES,
-        EntityType.EVENTS,
+        EntityType.EVENTS
     ]:
-        raise HTTPException(status_code=400, detail="Invalid entity type")
-    await fetch_entity(entity, date_from, date_to)
-    return {"success": True}
+        raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity}")
+    try:
+        await fetch_entity(entity, date_from, date_to)
+        return {"success": True}
+    except Exception as e:
+        log_event("server", "error", f"Error in fetch_entity_handler: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/state/clear-running")

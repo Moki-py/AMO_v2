@@ -414,8 +414,15 @@ class ParallelExporter:
             }
         return status
 
+    def _normalize_entity_type(self, entity_type: str) -> str:
+        """Normalize entity type to internal representation"""
+        if entity_type in ["deals", "leads"]:
+            return "leads"
+        return entity_type
+
     def restart_export(self, entity_type: str):
         """Force restart an export regardless of its current state"""
+        entity_type = self._normalize_entity_type(entity_type)
         # First stop any running export
         if entity_type in self.stop_flags:
             self.stop_flags[entity_type] = True
@@ -444,6 +451,7 @@ class ParallelExporter:
 
     def resume_export(self, entity_type: str):
         """Resume an export from the last saved page without resetting state"""
+        entity_type = self._normalize_entity_type(entity_type)
         # First stop any running export (if any)
         if entity_type in self.stop_flags:
             self.stop_flags[entity_type] = True

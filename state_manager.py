@@ -116,10 +116,17 @@ class StateManager:
         except PyMongoError as e:
             log_event("state", "error", f"Error saving state to MongoDB: {e}")
 
+    def _normalize_entity_type(self, entity_type: str) -> str:
+        """Normalize entity type to internal representation"""
+        if entity_type in ["deals", "leads"]:
+            return "leads"
+        return entity_type
+
     def update_export_progress(
         self, entity_type: str, page: int, completed: bool = False
     ):
         """Update the progress of an export"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type not in self.state:
             self.state[entity_type] = {
                 "last_page": 0,
@@ -135,18 +142,21 @@ class StateManager:
 
     def get_last_page(self, entity_type: str) -> int:
         """Get the last processed page for an entity type"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             return self.state[entity_type]["last_page"]
         return 0
 
     def is_export_completed(self, entity_type: str) -> bool:
         """Check if an export is completed"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             return self.state[entity_type]["completed"]
         return False
 
     def reset_export_state(self, entity_type: str):
         """Reset the state for an entity type"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             self.state[entity_type] = {
                 "last_page": 0,
@@ -157,6 +167,7 @@ class StateManager:
 
     def mark_export_running(self, entity_type: str):
         """Mark an export as currently running"""
+        entity_type = self._normalize_entity_type(entity_type)
         if "global" not in self.state:
             self.state["global"] = {"running_exports": []}
 
@@ -169,6 +180,7 @@ class StateManager:
 
     def mark_export_stopped(self, entity_type: str):
         """Mark an export as stopped"""
+        entity_type = self._normalize_entity_type(entity_type)
         if (
             "global" in self.state
             and "running_exports" in self.state["global"]
@@ -188,6 +200,7 @@ class StateManager:
 
     def is_export_running(self, entity_type: str) -> bool:
         """Check if an export is currently running"""
+        entity_type = self._normalize_entity_type(entity_type)
         running_exports = self.get_running_exports()
         return entity_type in running_exports
 
