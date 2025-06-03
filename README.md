@@ -14,6 +14,8 @@
 - [Экспортируемые данные](#экспортируемые-данные)
 - [Решение типичных проблем](#решение-типичных-проблем)
 - [Расширение функциональности](#расширение-функциональности)
+- [Scalable Worker System](#scalable-worker-system)
+- [Message Queue-Based Worker System](#message-queue-based-worker-system)
 
 ## Основные возможности
 
@@ -425,3 +427,220 @@ python modern_ui_server.py --fetch-all --batch-size 20
    ```
 
 4. **Используйте индексы в MongoDB** для ускорения запросов
+
+## Scalable Worker System
+
+The system now implements a scalable worker architecture using RabbitMQ and FastStream for distributed task processing. This allows for better resource utilization and horizontal scaling.
+
+### Key Components
+
+- **Message Broker (RabbitMQ)**: Central message queue for distributing export tasks
+- **FastStream Framework**: Integration with RabbitMQ for worker orchestration
+- **Worker Processes**: Dedicated processes that handle export tasks
+- **Task Queue**: Prioritized queue for export jobs
+
+### Running the Worker System
+
+#### Standard Configuration
+
+```bash
+# Start the entire system with RabbitMQ
+bash run_resource_constrained.sh
+```
+
+This will start:
+- RabbitMQ message broker on port 5672
+- RabbitMQ management UI on port 15672
+- Two worker processes for export tasks
+- MongoDB for storage
+- Mongo Express UI on port 8081
+
+#### Minimal Resource Configuration
+
+For systems with very limited resources (1 CPU, ~1.8GB RAM):
+
+```bash
+# Start minimal configuration
+bash run_resource_constrained.sh --minimal
+```
+
+This starts a resource-optimized configuration:
+- RabbitMQ (without management UI)
+- Single worker process
+- MongoDB (without Mongo Express)
+- API server with minimal resource usage
+
+### Managing the Worker System
+
+- **View logs**: `bash run_resource_constrained.sh --logs`
+- **Shutdown**: `bash run_resource_constrained.sh --down`
+
+### API for Task Management
+
+The modern UI now includes API endpoints for managing export tasks:
+
+- `POST /api/tasks/export_deals` - Create deal export task
+- `POST /api/tasks/export_contacts` - Create contact export task
+- `POST /api/tasks/export_companies` - Create company export task
+- `POST /api/tasks/export_events` - Create event export task
+- `POST /api/tasks/export_all` - Create tasks for all entity types
+- `GET /api/tasks` - List all tasks
+- `GET /api/tasks/{task_id}` - Get task details
+- `GET /api/workers` - Get worker status
+- `GET /health` - Check system health
+
+### Resource Optimization
+
+The system includes several optimizations for resource-constrained environments:
+
+1. **RabbitMQ Settings**:
+   - Memory watermark limits
+   - Reduced statistics collection
+
+2. **Worker Process Management**:
+   - Configurable worker count
+   - Batch size optimization
+   - Retry mechanisms with backoff
+
+3. **Docker Resource Limits**:
+   - CPU and memory constraints for each service
+   - Minimal container configuration options
+
+4. **MongoDB Optimization**:
+   - Reduced cache size
+   - Constrained memory usage
+
+## Message Queue-Based Worker System
+
+The application now supports a scalable, distributed worker system using RabbitMQ and FastStream. This architecture allows for better scalability, resilience, and resource utilization.
+
+### Features
+
+- **Distributed Processing**: Run multiple worker processes across different machines
+- **Message Durability**: Tasks are persisted in RabbitMQ queues, surviving application restarts
+- **Automatic Retries**: Failed tasks are automatically retried
+- **Priority Queuing**: Tasks can be prioritized for execution
+- **Monitoring**: Task status and progress can be tracked in real-time
+- **Horizontal Scaling**: Add more workers to handle increased load
+
+### Architecture
+
+The system consists of the following components:
+
+1. **RabbitMQ**: Message broker for task distribution
+2. **FastStream**: Python library for interacting with RabbitMQ
+3. **Worker Processes**: Consume tasks from queues and process them
+4. **API Server**: Publishes tasks to queues and provides status information
+
+### Running with Docker Compose
+
+The easiest way to run the system is using the provided Docker Compose file:
+
+```bash
+docker-compose -f rabbitmq.docker-compose.yml up -d
+```
+
+This will start:
+- RabbitMQ server with management UI (port 15672)
+- Multiple worker instances
+- API server (port 8000)
+- MongoDB (port 27017)
+- Mongo Express UI (port 8081)
+
+### Running Workers Manually
+
+To run workers manually:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run a worker with 4 processes
+python run_worker.py --workers 4
+
+# Enable hot reload for development
+python run_worker.py --reload
+
+# Connect to a specific RabbitMQ instance
+python run_worker.py --host rabbitmq.example.com --port 5672 --user myuser --password mypass
+```
+
+### Environment Variables
+
+The following environment variables can be set to configure the system:
+
+- `RABBITMQ_HOST`: RabbitMQ server hostname
+- `RABBITMQ_PORT`: RabbitMQ server port
+- `RABBITMQ_USER`: RabbitMQ username
+- `RABBITMQ_PASSWORD`: RabbitMQ password
+- `RABBITMQ_URL`: Full RabbitMQ connection URL (overrides individual settings)
+
+### Monitoring
+
+You can monitor the RabbitMQ server using the management UI:
+- URL: http://localhost:15672
+- Username: guest
+- Password: guest
+
+### Resource-Constrained Deployment
+
+For systems with limited resources, two Docker Compose configurations are provided:
+
+1. **Standard Resource-Limited Configuration**:
+   ```bash
+   docker-compose -f rabbitmq.docker-compose.yml up -d
+   ```
+   - Suitable for systems with ~1 CPU and ~2GB RAM
+   - Includes RabbitMQ with management UI, 2 worker processes, API server, MongoDB, and Mongo Express
+   - Each service has CPU and memory limits configured
+
+2. **Minimal Development Configuration**:
+   ```bash
+   docker-compose -f minimal.docker-compose.yml up -d
+   ```
+   - For very resource-constrained environments (less than 1 CPU and 1GB RAM)
+   - Includes RabbitMQ (without management UI), 1 worker process, API server, and MongoDB
+   - No Mongo Express admin UI to save resources
+   - Minimal configuration settings for all services
+
+#### Using the Resource Constrained Script
+
+For convenience, a script is provided to easily run the application in resource-constrained mode:
+
+```bash
+# Start with standard resource-limited configuration
+./run_resource_constrained.sh
+
+# Start with minimal configuration for very limited resources
+./run_resource_constrained.sh --minimal
+
+# View logs
+./run_resource_constrained.sh --logs
+
+# Stop all services
+./run_resource_constrained.sh --down
+```
+
+The script sets appropriate environment variables to optimize the application for limited resources:
+- Reduced retry count for failed tasks
+- Smaller batch sizes
+- Longer retry delays to reduce resource contention
+
+#### Resource Allocation
+
+The configurations allocate resources as follows:
+
+**Standard configuration**:
+- RabbitMQ: 0.3 CPU, 400MB RAM
+- Worker: 0.3 CPU, 400MB RAM (2 worker processes)
+- API: 0.2 CPU, 300MB RAM
+- MongoDB: 0.15 CPU, 500MB RAM
+- Mongo Express: 0.05 CPU, 200MB RAM
+
+**Minimal configuration**:
+- RabbitMQ: 0.2 CPU, 300MB RAM
+- Worker: 0.2 CPU, 300MB RAM (1 worker process)
+- API: 0.1 CPU, 200MB RAM
+- MongoDB: 0.1 CPU, 300MB RAM
+
+These allocations ensure that the application can run efficiently even on resource-constrained environments.

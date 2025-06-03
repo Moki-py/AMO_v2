@@ -3,7 +3,7 @@ State manager for tracking export progress using MongoDB
 """
 
 from datetime import datetime
-from typing import Any, List
+from typing import Any, List, Dict, Optional
 
 import config
 from logger import log_event
@@ -23,6 +23,9 @@ class StateManager:
         self.client = MongoClient(config.settings.mongodb_uri)
         self.db = self.client[config.settings.mongodb_db]
         self.state_collection = self.db['export_state']
+
+        # Initialize task collection
+        self.task_collection = self.db['export_tasks']
 
         # Initialize state if not exists in MongoDB
         self._ensure_state()
@@ -113,10 +116,17 @@ class StateManager:
         except PyMongoError as e:
             log_event("state", "error", f"Error saving state to MongoDB: {e}")
 
+    def _normalize_entity_type(self, entity_type: str) -> str:
+        """Normalize entity type to internal representation"""
+        if entity_type in ["deals", "leads"]:
+            return "leads"
+        return entity_type
+
     def update_export_progress(
         self, entity_type: str, page: int, completed: bool = False
     ):
         """Update the progress of an export"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type not in self.state:
             self.state[entity_type] = {
                 "last_page": 0,
@@ -132,18 +142,21 @@ class StateManager:
 
     def get_last_page(self, entity_type: str) -> int:
         """Get the last processed page for an entity type"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             return self.state[entity_type]["last_page"]
         return 0
 
     def is_export_completed(self, entity_type: str) -> bool:
         """Check if an export is completed"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             return self.state[entity_type]["completed"]
         return False
 
     def reset_export_state(self, entity_type: str):
         """Reset the state for an entity type"""
+        entity_type = self._normalize_entity_type(entity_type)
         if entity_type in self.state:
             self.state[entity_type] = {
                 "last_page": 0,
@@ -154,6 +167,7 @@ class StateManager:
 
     def mark_export_running(self, entity_type: str):
         """Mark an export as currently running"""
+        entity_type = self._normalize_entity_type(entity_type)
         if "global" not in self.state:
             self.state["global"] = {"running_exports": []}
 
@@ -166,6 +180,7 @@ class StateManager:
 
     def mark_export_stopped(self, entity_type: str):
         """Mark an export as stopped"""
+        entity_type = self._normalize_entity_type(entity_type)
         if (
             "global" in self.state
             and "running_exports" in self.state["global"]
@@ -185,6 +200,7 @@ class StateManager:
 
     def is_export_running(self, entity_type: str) -> bool:
         """Check if an export is currently running"""
+        entity_type = self._normalize_entity_type(entity_type)
         running_exports = self.get_running_exports()
         return entity_type in running_exports
 
@@ -248,23 +264,117 @@ class StateManager:
             if (result and
                 "global" in result and
                 "running_exports" in result["global"]):
-                running_exports = result["global"]["running_exports"]
-                is_running = entity_type in running_exports
-
-                # Log for debugging
-                if is_running:
-                    log_event(
-                        "state", "debug",
-                        f"MongoDB shows {entity_type} is running"
-                    )
-
-                return is_running
-
+                return entity_type in result["global"]["running_exports"]
             return False
         except PyMongoError as e:
             log_event(
                 "state", "error",
-                f"Error checking if {entity_type} is running in DB: {e}"
+                f"Error checking if export is running in DB: {e}"
             )
             # Fall back to in-memory state
             return self.is_export_running(entity_type)
+
+    # Task management methods
+
+    def save_task(self, task_data: Dict[str, Any]) -> bool:
+        """Save a task to the database"""
+        try:
+            # Add created_at and updated_at timestamps if not present
+            if "created_at" not in task_data:
+                task_data["created_at"] = datetime.now().isoformat()
+
+            task_data["updated_at"] = datetime.now().isoformat()
+
+            # Use task_id as MongoDB _id for easier lookups
+            task_id = task_data["task_id"]
+            task_data["_id"] = task_id
+
+            # Insert or update the task
+            self.task_collection.replace_one(
+                {"_id": task_id}, task_data, upsert=True
+            )
+
+            log_event("state", "info", f"Saved task {task_id} to database")
+            return True
+        except PyMongoError as e:
+            log_event("state", "error", f"Error saving task to database: {e}")
+            return False
+
+    def update_task_status(self, task_id: str, status: str) -> bool:
+        """Update the status of a task"""
+        try:
+            self.task_collection.update_one(
+                {"_id": task_id},
+                {
+                    "$set": {
+                        "status": status,
+                        "updated_at": datetime.now().isoformat()
+                    }
+                }
+            )
+
+            log_event("state", "info", f"Updated task {task_id} status to {status}")
+            return True
+        except PyMongoError as e:
+            log_event("state", "error", f"Error updating task status: {e}")
+            return False
+
+    def get_pending_tasks(self) -> List[Dict[str, Any]]:
+        """Get all pending tasks"""
+        try:
+            tasks = list(self.task_collection.find(
+                {"status": "pending"},
+                {"_id": 0}  # Exclude MongoDB _id field
+            ))
+
+            return tasks
+        except PyMongoError as e:
+            log_event("state", "error", f"Error getting pending tasks: {e}")
+            return []
+
+    def get_all_tasks(self) -> List[Dict[str, Any]]:
+        """Get all tasks"""
+        try:
+            tasks = list(self.task_collection.find({}, {"_id": 0}))
+            return tasks
+        except PyMongoError as e:
+            log_event("state", "error", f"Error getting all tasks: {e}")
+            return []
+
+    def get_task_by_id(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Get a task by ID"""
+        try:
+            task = self.task_collection.find_one({"_id": task_id}, {"_id": 0})
+            return task
+        except PyMongoError as e:
+            log_event("state", "error", f"Error getting task by ID: {e}")
+            return None
+
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task"""
+        try:
+            self.task_collection.delete_one({"_id": task_id})
+            log_event("state", "info", f"Deleted task {task_id}")
+            return True
+        except PyMongoError as e:
+            log_event("state", "error", f"Error deleting task: {e}")
+            return False
+
+    def clean_old_tasks(self, days: int = 30) -> int:
+        """Clean up old completed tasks"""
+        try:
+            # Calculate cutoff date
+            cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+
+            # Delete tasks older than cutoff date that are not pending or processing
+            result = self.task_collection.delete_many({
+                "status": {"$in": ["completed", "failed", "cancelled"]},
+                "updated_at": {"$lt": cutoff_date}
+            })
+
+            count = result.deleted_count
+            log_event("state", "info", f"Cleaned up {count} old tasks")
+            return count
+        except PyMongoError as e:
+            log_event("state", "error", f"Error cleaning up old tasks: {e}")
+            return 0

@@ -198,7 +198,8 @@ class Storage:
 
     def _get_collection_name(self, entity_type: str) -> str:
         """Map entity type to MongoDB collection name"""
-        if entity_type == "leads" or entity_type == "deals":
+        # Normalize deals/leads to use the same collection
+        if entity_type in ["leads", "deals"]:
             return "deals"
         elif entity_type == "contacts":
             return "contacts"
