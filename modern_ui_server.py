@@ -39,7 +39,7 @@ class EntityType(str, Enum):
     """Types of entities that can be exported"""
 
     ALL = "all"
-    DEALS = "leads"  # Using leads internally for deals
+    DEALS = "deals"  # Keep as "deals" for external API
     CONTACTS = "contacts"
     COMPANIES = "companies"
     EVENTS = "events"
@@ -50,6 +50,12 @@ class EntityType(str, Enum):
         if entity_type in ["deals", "leads"]:
             return "leads"
         return entity_type
+
+    def __str__(self) -> str:
+        """Convert to string, normalizing deals/leads"""
+        if self.value == "deals":
+            return "leads"
+        return self.value
 
 
 # Create global instances
