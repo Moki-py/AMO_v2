@@ -14,6 +14,7 @@ from pymongo import MongoClient
 from fastapi import FastAPI, HTTPException, Request, Header, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from logger import log_event
@@ -92,6 +93,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Add CORS middleware to handle preflight OPTIONS requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")
