@@ -71,9 +71,9 @@ class AmoCRMAPI:
                 log_event("api", "warning", error_msg)
                 return {}
 
-            # Проверим Content-Type
+            # Проверим Content-Type - поддерживаем как обычный JSON, так и HAL+JSON
             content_type = response.headers.get('content-type', '').lower()
-            if 'application/json' not in content_type:
+            if not ('application/json' in content_type or 'application/hal+json' in content_type):
                 error_msg = f"Non-JSON response from API for {endpoint}, content-type: {content_type}"
                 log_event("api", "warning", error_msg)
                 log_event("api", "debug", f"Response content: {response.text[:500]}")
