@@ -89,7 +89,7 @@ class ExportSettingsManager:
 
         # Entity type to collection mapping
         self.entity_collections = {
-            EntityType.DEALS: "leads",
+            EntityType.DEALS: "deals",
             EntityType.CONTACTS: "contacts",
             EntityType.COMPANIES: "companies",
             EntityType.EVENTS: "events",
@@ -158,8 +158,9 @@ class ExportSettingsManager:
         fields = []
         all_field_names: set[str] = set()
 
-        # Initialize tracking for custom field names
+        # Initialize tracking for custom field names and their original names
         self._custom_field_names = set()
+        self._original_field_names = {}  # Maps field_name -> original human-readable name
 
         # Analyze field structure from sample documents
         for doc in sample_docs:
@@ -192,9 +193,11 @@ class ExportSettingsManager:
                             # Sanitize column name
                             column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
                             field_names.add(column_name)
-                            # Track this as a custom field name
+                            # Track this as a custom field name and save original name
                             if hasattr(self, '_custom_field_names'):
                                 self._custom_field_names.add(column_name)
+                            if hasattr(self, '_original_field_names'):
+                                self._original_field_names[column_name] = field_name
                         elif field_id:
                             # Fallback to field_id based name
                             fallback_name = f"custom_field_{field_id}"
@@ -259,9 +262,16 @@ class ExportSettingsManager:
         else:
             description = self._generate_field_description(field_name, field_type, is_custom)
 
+        # Use original field name for custom fields if available
+        display_name = field_name
+        if is_custom and hasattr(self, '_original_field_names') and field_name in self._original_field_names:
+            display_name = self._original_field_names[field_name]
+        else:
+            display_name = self._format_field_name(field_name)
+
         return FieldInfo(
             field_id=field_name,
-            field_name=self._format_field_name(field_name),
+            field_name=display_name,
             field_type=field_type,
             is_custom=is_custom,
             custom_id=custom_id,
