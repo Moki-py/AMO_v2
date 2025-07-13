@@ -363,12 +363,12 @@ async def export_sheets_handler(
 def get_stats() -> dict:
     """Get current statistics"""
     try:
-        deals = len(storage.get_entities("leads"))
-        contacts = len(storage.get_entities("contacts"))
-        companies = len(storage.get_entities("companies"))
-        events = len(storage.get_entities("events"))
-        users = len(storage.get_entities("users"))
-        pipelines = len(storage.get_entities("pipelines"))
+        deals = storage.get_entity_count("leads")
+        contacts = storage.get_entity_count("contacts")
+        companies = storage.get_entity_count("companies")
+        events = storage.get_entity_count("events")
+        users = storage.get_entity_count("users")
+        pipelines = storage.get_entity_count("pipelines")
 
         return {
             "deals": deals,

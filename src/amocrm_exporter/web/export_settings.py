@@ -135,8 +135,22 @@ class ExportSettingsManager:
         collection = self.db[collection_name]
 
         # Get sample documents to analyze field structure
-        sample_limit = min(100, config.settings.max_sample_size // 50)  # Adaptive sample size
-        sample_docs = list(collection.find().limit(sample_limit))
+        # Увеличиваем размер выборки для лучшего обнаружения полей
+        sample_limit = min(1000, config.settings.max_sample_size // 5)  # Увеличенный размер выборки
+
+        # Используем более интеллектуальную выборку для анализа полей
+        # Берем случайную выборку, чтобы покрыть больше вариантов полей
+        pipeline = [
+            {"$sample": {"size": sample_limit}},
+            {"$sort": {"updated_at": -1}}  # Сортируем по дате обновления
+        ]
+
+        try:
+            sample_docs = list(collection.aggregate(pipeline))
+        except Exception as e:
+            log_event("export_settings", "warning", f"Failed to use aggregation pipeline, falling back to simple find: {e}")
+            sample_docs = list(collection.find().limit(sample_limit))
+
         if not sample_docs:
             log_event("export_settings", "warning", f"No data found for {entity_type}")
             return []
@@ -158,7 +172,7 @@ class ExportSettingsManager:
 
         return fields
 
-    def _extract_fields_from_doc(self, doc: Dict[str, Any], field_names: set, entity_type: EntityType, prefix: str = ""):
+    def _extract_fields_from_doc(self, doc: Dict[str, Any], field_names: set, entity_type: EntityType, prefix: str = "") -> None:
         """Recursively extract field names from document"""
         for key, value in doc.items():
             if key.startswith('_'):
@@ -188,6 +202,22 @@ class ExportSettingsManager:
                             # Track this as a custom field name
                             if hasattr(self, '_custom_field_names'):
                                 self._custom_field_names.add(fallback_name)
+                continue
+
+            # Special handling for events: value_after and value_before contain custom_field_value
+            if key in ['value_after', 'value_before'] and isinstance(value, list) and entity_type == EntityType.EVENTS:
+                for event_value in value:
+                    if isinstance(event_value, dict) and 'custom_field_value' in event_value:
+                        custom_field_value = event_value['custom_field_value']
+                        if isinstance(custom_field_value, dict):
+                            field_id = custom_field_value.get('field_id', '')
+                            if field_id:
+                                # For events, we use field_id as the column name
+                                column_name = f"custom_field_{field_id}"
+                                field_names.add(column_name)
+                                # Track this as a custom field name
+                                if hasattr(self, '_custom_field_names'):
+                                    self._custom_field_names.add(column_name)
                 continue
 
             full_key = f"{prefix}.{key}" if prefix else key
@@ -223,8 +253,11 @@ class ExportSettingsManager:
         # Generate preview data
         preview_data = await self._generate_preview_data(field_name, entity_type, sample_docs)
 
-        # Generate description
-        description = self._generate_field_description(field_name, field_type, is_custom)
+        # Generate description with special handling for events
+        if entity_type == EntityType.EVENTS and field_name.startswith('custom_field_'):
+            description = f"Кастомное поле для событий (ID: {custom_id})"
+        else:
+            description = self._generate_field_description(field_name, field_type, is_custom)
 
         return FieldInfo(
             field_id=field_name,
@@ -350,6 +383,19 @@ class ExportSettingsManager:
 
         return value
 
+    def _extract_event_custom_field_value(self, doc: Dict[str, Any], field_id: str) -> Any:
+        """Extract custom field value from event document"""
+        # Check value_after and value_before for custom_field_value
+        for key in ['value_after', 'value_before']:
+            if key in doc and isinstance(doc[key], list):
+                for event_value in doc[key]:
+                    if isinstance(event_value, dict) and 'custom_field_value' in event_value:
+                        custom_field_value = event_value['custom_field_value']
+                        if isinstance(custom_field_value, dict) and str(custom_field_value.get('field_id')) == field_id:
+                            # Return the text value if available
+                            return custom_field_value.get('text', custom_field_value.get('value', 'N/A'))
+        return None
+
     async def _generate_preview_data(self, field_name: str, entity_type: EntityType, sample_docs: List[Dict]) -> List[str]:
         """Generate preview data for a field using optimized methods when possible"""
         # Use optimized storage method if available
@@ -367,7 +413,13 @@ class ExportSettingsManager:
         preview_values = []
 
         for doc in sample_docs[:5]:  # Get first 5 examples
-            value = self._get_nested_value(doc, field_name)
+            # Special handling for events custom fields
+            if entity_type == EntityType.EVENTS and field_name.startswith('custom_field_'):
+                field_id = field_name.replace('custom_field_', '')
+                value = self._extract_event_custom_field_value(doc, field_id)
+            else:
+                value = self._get_nested_value(doc, field_name)
+
             if value is not None:
                 # Convert to string representation
                 str_value = self._format_value_for_preview(value)
