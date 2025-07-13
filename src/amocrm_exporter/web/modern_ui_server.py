@@ -115,7 +115,7 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 worker_pool = None
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Initialize components on startup"""
     # No need to manually start the broker - it will be handled by FastStream
     log_event("api", "info", "Connected to RabbitMQ message broker")
@@ -129,7 +129,7 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Cleanup on shutdown"""
     # Stop flattening processor
     try:
@@ -143,7 +143,7 @@ async def shutdown_event():
     log_event("api", "info", "Closed connection to message broker")
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict:
     """Health check endpoint for monitoring"""
     # Check connections to critical services
     health_status = {
@@ -178,13 +178,13 @@ async def health_check():
     return health_status
 
 @app.get("/", response_class=HTMLResponse)
-async def get_root(request: Request):
+async def get_root(request: Request) -> HTMLResponse:
     """Render the main UI"""
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/export-settings", response_class=HTMLResponse)
-async def render_export_settings_page(request: Request):
+async def render_export_settings_page(request: Request) -> HTMLResponse:
     """Render the export settings UI"""
     return templates.TemplateResponse("export-settings.html", {"request": request})
 
@@ -325,7 +325,7 @@ async def resume_export_handler(entity: EntityType) -> dict:
 async def export_excel_handler(
     date_from: str = Query(None),
     date_to: str = Query(None)
-):
+) -> FileResponse:
     try:
         excel_file = excel_exporter.export_all_to_excel(
             date_from=date_from, date_to=date_to
@@ -347,7 +347,7 @@ async def export_excel_handler(
 async def export_sheets_handler(
     date_from: str = Query(None),
     date_to: str = Query(None)
-):
+) -> dict:
     try:
         sheets_url = sheets_exporter.export_all_to_sheets(
             date_from=date_from, date_to=date_to
@@ -384,7 +384,7 @@ def get_stats() -> dict:
         return {"deals": 0, "contacts": 0, "companies": 0, "events": 0, "users": 0, "pipelines": 0}
 
 
-async def fetch_all(date_from=None, date_to=None):
+async def fetch_all(date_from=None, date_to=None) -> None:
     try:
         exporter.export_all(date_from=date_from, date_to=date_to)
         log_event("server", "info", "Started export of all data")
@@ -393,7 +393,7 @@ async def fetch_all(date_from=None, date_to=None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def fetch_entity(entity: EntityType, date_from=None, date_to=None):
+async def fetch_entity(entity: EntityType, date_from=None, date_to=None) -> None:
     try:
         export_methods: dict[EntityType, Callable] = {
             EntityType.DEALS: exporter.export_deals,
@@ -450,7 +450,7 @@ async def store_webhook_event(event_data: Dict[str, Any]) -> bool:
         return False
 
 @app.post("/webhook")
-async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)) -> JSONResponse:
+async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)) -> dict | JSONResponse:
     body = await request.body()
     if hasattr(config.settings, 'webhook_secret') and config.settings.webhook_secret:
         if not verify_webhook_signature(x_signature, body):
@@ -481,7 +481,7 @@ async def webhook_handler(request: Request, x_signature: Optional[str] = Header(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/webhooks")
-async def get_webhook_events():
+async def get_webhook_events() -> dict:
     try:
         collection = get_mongo_webhook_collection()
         events = list(collection.find({}, {"_id": 0}))
@@ -492,13 +492,13 @@ async def get_webhook_events():
 
 # Worker API routes
 @app.get("/api/tasks")
-async def get_tasks():
+async def get_tasks() -> dict:
     """Get all export tasks"""
     state_manager = StateManager()
     return {"tasks": state_manager.get_all_tasks()}
 
 @app.get("/api/tasks/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str) -> dict:
     """Get details of a specific task"""
     state_manager = StateManager()
     task = state_manager.get_task_by_id(task_id)
@@ -514,7 +514,7 @@ async def create_deals_export_task(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     priority: int = 1
-):
+) -> dict:
     """Create a task to export deals"""
     task_id = await create_export_task(
         entity_type="leads",
@@ -535,7 +535,7 @@ async def create_contacts_export_task(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     priority: int = 1
-):
+) -> dict:
     """Create a task to export contacts"""
     task_id = await create_export_task(
         entity_type="contacts",
@@ -556,7 +556,7 @@ async def create_companies_export_task(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     priority: int = 1
-):
+) -> dict:
     """Create a task to export companies"""
     task_id = await create_export_task(
         entity_type="companies",
@@ -577,7 +577,7 @@ async def create_events_export_task(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     priority: int = 1
-):
+) -> dict:
     """Create a task to export events"""
     task_id = await create_export_task(
         entity_type="events",
@@ -598,7 +598,7 @@ async def create_all_export_tasks(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     priority: int = 1
-):
+) -> dict:
     """Create tasks to export all entity types"""
     task_ids = []
 
@@ -618,14 +618,14 @@ async def create_all_export_tasks(
     return {"task_ids": task_ids}
 
 @app.delete("/api/tasks/{task_id}")
-async def cancel_task(task_id: str):
+async def cancel_task(task_id: str) -> dict:
     """Cancel a pending task"""
     state_manager = StateManager()
     state_manager.update_task_status(task_id, "cancelled")
     return {"status": "Task cancelled"}
 
 @app.get("/api/workers")
-async def get_worker_status():
+async def get_worker_status() -> dict:
     """Get status of worker processes"""
     try:
         return {"status": "running", "workers": []}
@@ -636,7 +636,7 @@ async def get_worker_status():
 # Export Settings API Endpoints
 
 @app.get("/api/export-settings/fields/{entity_type}")
-async def get_available_fields(entity_type: str, force_refresh: bool = False):
+async def get_available_fields(entity_type: str, force_refresh: bool = False) -> dict:
     """Get available fields for an entity type"""
     try:
         # Convert to ExportEntityType - support all entity types
@@ -666,7 +666,7 @@ async def get_available_fields(entity_type: str, force_refresh: bool = False):
 
 
 @app.get("/api/export-settings/preview/{entity_type}/{field_name}")
-async def get_field_preview(entity_type: str, field_name: str, limit: int = 10):
+async def get_field_preview(entity_type: str, field_name: str, limit: int = 10) -> dict:
     """Get preview data for a specific field"""
     try:
         # Convert to ExportEntityType - support all entity types
@@ -699,7 +699,7 @@ async def get_field_preview(entity_type: str, field_name: str, limit: int = 10):
 
 
 @app.post("/api/export-settings")
-async def save_export_settings(settings_data: dict):
+async def save_export_settings(settings_data: dict) -> dict:
     """Save export settings"""
     try:
         # Validate required fields
@@ -731,7 +731,7 @@ async def save_export_settings(settings_data: dict):
 
 
 @app.get("/api/export-settings")
-async def list_export_settings(entity_type: Optional[str] = None):
+async def list_export_settings(entity_type: Optional[str] = None) -> dict:
     """List all saved export settings"""
     try:
         export_entity_type = None
@@ -762,7 +762,7 @@ async def list_export_settings(entity_type: Optional[str] = None):
 
 
 @app.get("/api/export-settings/{settings_id}")
-async def get_export_settings(settings_id: str):
+async def get_export_settings(settings_id: str) -> dict:
     """Get specific export settings by ID"""
     try:
         settings = await export_settings_manager.load_export_settings(settings_id)
@@ -781,7 +781,7 @@ async def get_export_settings(settings_id: str):
 
 
 @app.put("/api/export-settings/{settings_id}")
-async def update_export_settings(settings_id: str, settings_data: dict):
+async def update_export_settings(settings_id: str, settings_data: dict) -> dict:
     """Update existing export settings"""
     try:
         # Load existing settings
@@ -817,7 +817,7 @@ async def update_export_settings(settings_id: str, settings_data: dict):
 
 
 @app.delete("/api/export-settings/{settings_id}")
-async def delete_export_settings(settings_id: str):
+async def delete_export_settings(settings_id: str) -> dict:
     """Delete export settings"""
     try:
         success = await export_settings_manager.delete_export_settings(settings_id)
@@ -836,7 +836,7 @@ async def delete_export_settings(settings_id: str):
 
 
 @app.post("/api/export-settings/clear-cache")
-async def clear_export_settings_cache():
+async def clear_export_settings_cache() -> dict:
     """Clear export settings cache"""
     try:
         await export_settings_manager.clear_cache()
@@ -851,7 +851,7 @@ async def clear_export_settings_cache():
 
 # Flattening processor endpoints
 @app.get("/api/flattening/status")
-async def get_flattening_status():
+async def get_flattening_status() -> dict:
     """Get current flattening processor status"""
     try:
         status = flattening_processor.get_flattening_status()
@@ -862,7 +862,7 @@ async def get_flattening_status():
 
 
 @app.post("/api/flattening/start")
-async def start_flattening():
+async def start_flattening() -> dict:
     """Start the flattening processor"""
     try:
         flattening_processor.start()
@@ -873,7 +873,7 @@ async def start_flattening():
 
 
 @app.post("/api/flattening/stop")
-async def stop_flattening():
+async def stop_flattening() -> dict:
     """Stop the flattening processor"""
     try:
         flattening_processor.stop()
@@ -884,7 +884,7 @@ async def stop_flattening():
 
 
 @app.post("/api/flattening/sync/{entity_type}")
-async def force_sync_flattening(entity_type: str):
+async def force_sync_flattening(entity_type: str) -> dict:
     """Force immediate synchronization for a specific entity type"""
     try:
         # Normalize entity type and validate
@@ -903,7 +903,7 @@ async def force_sync_flattening(entity_type: str):
 
 
 @app.post("/api/flattening/cleanup")
-async def cleanup_flattened_data():
+async def cleanup_flattened_data() -> dict:
     """Clean up orphaned flattened data"""
     try:
         result = flattening_processor.cleanup_old_flattened_data()
@@ -914,7 +914,7 @@ async def cleanup_flattened_data():
 
 
 @app.get("/api/flattening/search/{entity_type}")
-async def search_flattened_data(entity_type: str, q: str = Query(...), limit: int = Query(20)):
+async def search_flattened_data(entity_type: str, q: str = Query(...), limit: int = Query(20)) -> dict:
     """Search in flattened data"""
     try:
         # Normalize entity type and validate
@@ -933,7 +933,7 @@ async def search_flattened_data(entity_type: str, q: str = Query(...), limit: in
 
 
 @app.get("/api/flattening/statistics/{entity_type}")
-async def get_flattened_statistics(entity_type: str):
+async def get_flattened_statistics(entity_type: str) -> dict:
     """Get field statistics for flattened data"""
     try:
         # Normalize entity type and validate
@@ -954,7 +954,7 @@ async def get_flattened_statistics(entity_type: str):
 # Performance monitoring endpoints
 
 @app.get("/api/performance/stats")
-async def get_performance_stats():
+async def get_performance_stats() -> dict:
     """Get MongoDB operation performance statistics"""
     try:
         stats = storage.performance_monitor.get_operation_stats()
@@ -964,7 +964,7 @@ async def get_performance_stats():
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/performance/stats/{operation_name}")
-async def get_operation_performance_stats(operation_name: str):
+async def get_operation_performance_stats(operation_name: str) -> dict:
     """Get performance statistics for a specific operation"""
     try:
         stats = storage.performance_monitor.get_operation_stats(operation_name)
@@ -974,7 +974,7 @@ async def get_operation_performance_stats(operation_name: str):
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/performance/slow-operations")
-async def get_slow_operations(limit: int = 10):
+async def get_slow_operations(limit: int = 10) -> dict:
     """Get the slowest recent operations"""
     try:
         slow_ops = storage.performance_monitor.get_slow_operations(limit)
@@ -984,7 +984,7 @@ async def get_slow_operations(limit: int = 10):
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/performance/collection-stats/{entity_type}")
-async def get_collection_stats(entity_type: str):
+async def get_collection_stats(entity_type: str) -> dict:
     """Get collection statistics for performance monitoring"""
     try:
         stats = storage.get_collection_stats(entity_type)
@@ -994,7 +994,7 @@ async def get_collection_stats(entity_type: str):
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/performance/analyze-query")
-async def analyze_query_performance(request: Request):
+async def analyze_query_performance(request: Request) -> dict:
     """Analyze query performance and get optimization suggestions"""
     try:
         data = await request.json()
@@ -1011,7 +1011,7 @@ async def analyze_query_performance(request: Request):
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/performance/slow-queries")
-async def get_slow_queries_analysis(threshold_ms: int = 1000):
+async def get_slow_queries_analysis(threshold_ms: int = 1000) -> dict:
     """Get analysis of slow queries with optimization suggestions"""
     try:
         analysis = storage.get_slow_queries_analysis(threshold_ms)
@@ -1022,7 +1022,7 @@ async def get_slow_queries_analysis(threshold_ms: int = 1000):
 
 @app.get("/api/entities/{entity_type}/paginated")
 async def get_entities_paginated(entity_type: str, page: int = 1, page_size: int = 100,
-                                sort_field: str = None, sort_order: int = 1):
+                                sort_field: str = None, sort_order: int = 1) -> dict:
     """Get entities with pagination support"""
     try:
         # Validate entity type
@@ -1051,7 +1051,7 @@ async def get_entities_paginated(entity_type: str, page: int = 1, page_size: int
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/performance/reset-stats")
-async def reset_performance_stats():
+async def reset_performance_stats() -> dict:
     """Reset performance statistics"""
     try:
         storage.performance_monitor.operation_stats.clear()
@@ -1062,7 +1062,7 @@ async def reset_performance_stats():
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/performance/threshold")
-async def get_slow_query_threshold():
+async def get_slow_query_threshold() -> dict:
     """Get current slow query threshold"""
     try:
         threshold = storage.performance_monitor.slow_query_threshold
@@ -1072,7 +1072,7 @@ async def get_slow_query_threshold():
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/performance/threshold")
-async def set_slow_query_threshold(request: Request):
+async def set_slow_query_threshold(request: Request) -> dict:
     """Set slow query threshold"""
     try:
         data = await request.json()
@@ -1091,7 +1091,7 @@ async def set_slow_query_threshold(request: Request):
 # Benchmark testing endpoints
 
 @app.post("/api/benchmark/run")
-async def run_benchmark_tests(request: Request):
+async def run_benchmark_tests(request: Request) -> dict:
     """Run benchmark tests for system performance evaluation"""
     try:
         data = await request.json() if hasattr(request, 'json') else {}
@@ -1142,7 +1142,7 @@ async def run_benchmark_tests(request: Request):
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/benchmark/available-categories")
-async def get_benchmark_categories():
+async def get_benchmark_categories() -> dict:
     """Get available benchmark test categories"""
     return {
         "status": "success",
@@ -1183,7 +1183,7 @@ async def get_benchmark_categories():
 # Flattening processor management endpoints
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8000):
+def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Run the FastAPI server"""
     try:
         # Log server start
