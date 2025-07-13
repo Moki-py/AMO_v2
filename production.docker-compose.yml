@@ -217,6 +217,8 @@ volumes:
     driver: local
   caddy_data:
     driver: local
+  caddy_config:
+    driver: local
 
 networks:
   amo_network:
