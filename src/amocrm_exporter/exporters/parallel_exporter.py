@@ -206,6 +206,25 @@ class ParallelExporter:
             date_to,
         )
 
+    def export_custom_fields(
+        self,
+        force_restart: bool = False,
+        batch_save: bool = True,
+        batch_size: int = 10,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ):
+        """Export custom fields metadata to separate collection"""
+        self._start_export_thread(
+            "custom_fields",
+            self._export_custom_fields_worker,
+            force_restart,
+            batch_save,
+            batch_size,
+            date_from,
+            date_to,
+        )
+
     def export_all(
         self,
         force_restart: bool = False,
@@ -214,7 +233,26 @@ class ParallelExporter:
         date_from: str | None = None,
         date_to: str | None = None,
     ):
-        """Export all entity types in parallel"""
+        """Export all entity types in correct order for data dependencies"""
+        # 1. First import users - needed for enriching other entities
+        self.export_users(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        # 2. Import custom fields metadata - needed for data enrichment
+        self.export_custom_fields(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        # 3. Import deals - before events to ensure deals exist for event references
         self.export_deals(
             force_restart=force_restart,
             batch_save=batch_save,
@@ -222,6 +260,17 @@ class ParallelExporter:
             date_from=date_from,
             date_to=date_to,
         )
+
+        # 4. Import events - after deals so they can reference deals
+        self.export_events(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        # 5. Import other entities - order less critical
         self.export_contacts(
             force_restart=force_restart,
             batch_save=batch_save,
@@ -230,20 +279,6 @@ class ParallelExporter:
             date_to=date_to,
         )
         self.export_companies(
-            force_restart=force_restart,
-            batch_save=batch_save,
-            batch_size=batch_size,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        self.export_events(
-            force_restart=force_restart,
-            batch_save=batch_save,
-            batch_size=batch_size,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        self.export_users(
             force_restart=force_restart,
             batch_save=batch_save,
             batch_size=batch_size,
@@ -439,6 +474,31 @@ class ParallelExporter:
             # Clean up thread reference
             if "pipelines" in self.threads:
                 del self.threads["pipelines"]
+
+    def _export_custom_fields_worker(
+        self, batch_save: bool = True, batch_size: int = 10, date_from: str | None = None, date_to: str | None = None
+    ):
+        """Worker function for exporting custom fields metadata"""
+        try:
+            log_event("exporter", "warning", "Starting custom fields export (test)")
+            # Send initial heartbeat
+            self.state_manager.send_heartbeat("custom_fields",
+                thread_id=threading.current_thread().name,
+                metadata={"batch_save": batch_save, "batch_size": batch_size}
+            )
+
+            self._export_entities_worker(
+                "custom_fields", self.api.get_custom_fields_page, batch_save, batch_size, date_from, date_to
+            )
+        except Exception as e:
+            log_event(
+                "exporter", "error", f"Error in custom fields export worker: {e}"
+            )
+        finally:
+            self.state_manager.mark_export_stopped("custom_fields")
+            # Clean up thread reference
+            if "custom_fields" in self.threads:
+                del self.threads["custom_fields"]
 
     def _export_entities_worker(
         self,
@@ -767,7 +827,7 @@ def main():
     import sys
 
     parser = argparse.ArgumentParser(description='AmoCRM Parallel Data Exporter')
-    parser.add_argument('--entity', choices=['deals', 'contacts', 'companies', 'events', 'users', 'pipelines', 'all'],
+    parser.add_argument('--entity', choices=['deals', 'contacts', 'companies', 'events', 'users', 'pipelines', 'custom_fields', 'all'],
                        default='all', help='Entity type to export')
     parser.add_argument('--force-restart', action='store_true', help='Force restart export')
     parser.add_argument('--batch-size', type=int, default=10, help='Batch size for processing')
@@ -824,6 +884,13 @@ def main():
             )
         elif args.entity == 'pipelines':
             exporter.export_pipelines(
+                force_restart=args.force_restart,
+                batch_size=args.batch_size,
+                date_from=args.date_from,
+                date_to=args.date_to
+            )
+        elif args.entity == 'custom_fields':
+            exporter.export_custom_fields(
                 force_restart=args.force_restart,
                 batch_size=args.batch_size,
                 date_from=args.date_from,

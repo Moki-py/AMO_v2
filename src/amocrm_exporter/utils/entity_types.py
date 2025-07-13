@@ -25,6 +25,7 @@ class EntityType(str, Enum):
     EVENTS = "events"
     USERS = "users"
     PIPELINES = "pipelines"
+    CUSTOM_FIELDS = "custom_fields"
 
     # Special types
     ALL = "all"
@@ -38,7 +39,8 @@ class EntityType(str, Enum):
             cls.COMPANIES.value,
             cls.EVENTS.value,
             cls.USERS.value,
-            cls.PIPELINES.value
+            cls.PIPELINES.value,
+            cls.CUSTOM_FIELDS.value
         ]
 
     @classmethod
@@ -175,6 +177,16 @@ class EntityTypeRegistry:
             supports_import=False,
             has_custom_fields=False,
             description="Воронки продаж AmoCRM"
+        ),
+        "custom_fields": EntityTypeInfo(
+            name="custom_fields",
+            display_name="custom_fields",
+            collection_name="custom_fields",
+            api_endpoint="custom_fields",
+            supports_export=True,
+            supports_import=True,
+            has_custom_fields=False,
+            description="Кастомные поля AmoCRM"
         )
     }
 

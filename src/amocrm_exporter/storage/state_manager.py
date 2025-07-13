@@ -112,6 +112,11 @@ class StateManager:
                     "completed": False,
                     "last_update": None,
                 },
+                "custom_fields": {
+                    "last_page": 0,
+                    "completed": False,
+                    "last_update": None,
+                },
                 "global": {"last_full_sync": None, "running_exports": []},
             }
 

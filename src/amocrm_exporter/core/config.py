@@ -218,7 +218,7 @@ class Settings(BaseSettings):
 
     @property
     def api_url(self) -> str:
-        domain = self.api_domain or "api-a.amocrm.ru"
+        domain = self.api_domain or "wecheap.amocrm.ru"
         return f"https://{domain}/api/v4"
 
     @property

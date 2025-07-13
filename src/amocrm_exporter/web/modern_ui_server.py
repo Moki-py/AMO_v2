@@ -49,6 +49,7 @@ class EntityType(str, Enum):
     EVENTS = "events"
     USERS = "users"
     PIPELINES = "pipelines"
+    CUSTOM_FIELDS = "custom_fields"
 
     @staticmethod
     def normalize(entity_type: str) -> str:
@@ -401,6 +402,7 @@ async def fetch_entity(entity: EntityType, date_from=None, date_to=None):
             EntityType.EVENTS: exporter.export_events,
             EntityType.USERS: exporter.export_users,
             EntityType.PIPELINES: exporter.export_pipelines,
+            EntityType.CUSTOM_FIELDS: exporter.export_custom_fields,
         }
         if entity in export_methods:
             export_methods[entity](date_from=date_from, date_to=date_to)
@@ -448,7 +450,7 @@ async def store_webhook_event(event_data: Dict[str, Any]) -> bool:
         return False
 
 @app.post("/webhook")
-async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)):
+async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)) -> JSONResponse | dict[str, Any]:
     body = await request.body()
     if hasattr(config.settings, 'webhook_secret') and config.settings.webhook_secret:
         if not verify_webhook_signature(x_signature, body):

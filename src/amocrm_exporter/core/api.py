@@ -411,3 +411,29 @@ class AmoCRMAPI:
         log_event("api", "info", f"Fetched {total_fields} custom fields total across all entity types")
 
         return all_custom_fields
+
+    def get_custom_fields_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get custom fields page - custom fields don't support pagination so we return all on first page"""
+        try:
+            if page > 1:
+                # Custom fields don't support pagination, return empty for pages > 1
+                return [], False
+
+            # Get all custom fields and format them as flat list
+            all_custom_fields = self.get_all_custom_fields()
+            flat_custom_fields = []
+
+            for entity_type, fields in all_custom_fields.items():
+                for field in fields:
+                    # Add entity_type to each field for context
+                    field_with_type = field.copy()
+                    field_with_type["entity_type"] = entity_type
+                    field_with_type["fetched_at"] = datetime.now().isoformat()
+                    flat_custom_fields.append(field_with_type)
+
+            log_event("api", "info", f"Fetched {len(flat_custom_fields)} custom fields on page {page}")
+            return flat_custom_fields, False  # No more pages after first
+
+        except Exception as e:
+            log_event("api", "error", f"Error fetching custom fields page {page}: {e}")
+            return [], False

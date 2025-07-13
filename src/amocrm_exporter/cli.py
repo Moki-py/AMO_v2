@@ -6,14 +6,14 @@ import sys
 import asyncio
 from pathlib import Path
 
-def main():
+def main() -> None:
     """Основная точка входа для CLI"""
     import argparse
 
     parser = argparse.ArgumentParser(description='AmoCRM Data Exporter')
     parser.add_argument('command', nargs='?', choices=['export', 'web', 'worker'], default='export',
                        help='Команда для выполнения')
-    parser.add_argument('--entity', choices=['deals', 'contacts', 'companies', 'events', 'users', 'pipelines', 'all'],
+    parser.add_argument('--entity', choices=['deals', 'contacts', 'companies', 'events', 'users', 'pipelines', 'custom_fields', 'all'],
                        default='all', help='Тип сущности для экспорта')
     parser.add_argument('--force-restart', action='store_true', help='Принудительный перезапуск экспорта')
     parser.add_argument('--batch-size', type=int, default=10, help='Размер пакета для обработки')
@@ -82,6 +82,13 @@ def main():
                     date_from=args.date_from,
                     date_to=args.date_to
                 )
+            elif args.entity == 'custom_fields':
+                exporter.export_custom_fields(
+                    force_restart=args.force_restart,
+                    batch_size=args.batch_size,
+                    date_from=args.date_from,
+                    date_to=args.date_to
+                )
 
             print(f"Экспорт {args.entity} завершен успешно!")
 
@@ -93,7 +100,7 @@ def main():
             print(f"Ошибка при экспорте: {e}")
             sys.exit(1)
 
-def web_main():
+def web_main() -> None:
     """Точка входа для веб-интерфейса"""
     try:
         import uvicorn
@@ -104,8 +111,8 @@ def web_main():
         print("Убедитесь, что все зависимости установлены: pip install -r requirements.txt")
         sys.exit(1)
 
-def worker_main():
-    """Точка входа для worker'а"""
+def worker_main() -> None:
+    """Точка входа для воркера"""
     try:
         from .workers.run_worker import main as worker_main_func
         worker_main_func()
