@@ -1252,6 +1252,44 @@ class Storage:
                 # Add computed fields for comparison
                 {
                     "$addFields": {
+                        # Normalize updated_at to datetime for comparison
+                        "normalized_updated_at": {
+                            "$switch": {
+                                "branches": [
+                                    # If updated_at is a string, convert to date
+                                    {
+                                        "case": {"$type": ["$updated_at", "string"]},
+                                        "then": {
+                                            "$convert": {
+                                                "input": "$updated_at",
+                                                "to": "date",
+                                                "onError": None
+                                            }
+                                        }
+                                    },
+                                    # If updated_at is a number (Unix timestamp), convert to date
+                                    {
+                                        "case": {"$type": ["$updated_at", "number"]},
+                                        "then": {
+                                            "$convert": {
+                                                "input": {"$multiply": ["$updated_at", 1000]},
+                                                "to": "date",
+                                                "onError": None
+                                            }
+                                        }
+                                    }
+                                ],
+                                "default": None
+                            }
+                        },
+                        # Get flattened last_updated as date
+                        "flattened_last_updated": {
+                            "$convert": {
+                                "input": {"$arrayElemAt": ["$flattened_info.last_updated", 0]},
+                                "to": "date",
+                                "onError": None
+                            }
+                        },
                         "needs_flattening": {
                             "$or": [
                                 # No flattened version exists
@@ -1262,18 +1300,26 @@ class Storage:
                                         {"$gt": [{"$size": "$flattened_info"}, 0]},
                                         {
                                             "$or": [
-                                                # Entity was updated after flattening
+                                                # Entity was updated after flattening (only compare if both dates are valid)
                                                 {
-                                                    "$gt": [
-                                                        {"$toDate": "$updated_at"},
-                                                        {"$toDate": {"$arrayElemAt": ["$flattened_info.last_updated", 0]}}
+                                                    "$and": [
+                                                        {"$ne": ["$normalized_updated_at", None]},
+                                                        {"$ne": ["$flattened_last_updated", None]},
+                                                        {"$gt": ["$normalized_updated_at", "$flattened_last_updated"]}
                                                     ]
                                                 },
                                                 # Flattened data is too old
                                                 {
-                                                    "$lt": [
-                                                        {"$toDate": {"$arrayElemAt": ["$flattened_info.last_updated", 0]}},
-                                                        cutoff_time
+                                                    "$and": [
+                                                        {"$ne": ["$flattened_last_updated", None]},
+                                                        {"$lt": ["$flattened_last_updated", cutoff_time]}
+                                                    ]
+                                                },
+                                                # If we can't parse dates, assume needs flattening
+                                                {
+                                                    "$or": [
+                                                        {"$eq": ["$normalized_updated_at", None]},
+                                                        {"$eq": ["$flattened_last_updated", None]}
                                                     ]
                                                 }
                                             ]
@@ -1286,8 +1332,8 @@ class Storage:
                 },
                 # Filter only entities that need flattening
                 {"$match": {"needs_flattening": True}},
-                # Remove the lookup field from results
-                {"$unset": ["flattened_info", "needs_flattening"]},
+                # Remove the computed fields from results
+                {"$unset": ["flattened_info", "needs_flattening", "normalized_updated_at", "flattened_last_updated"]},
                 # Sort by priority (recently updated first)
                 {"$sort": {"updated_at": -1}},
                 # Limit results
@@ -1329,6 +1375,25 @@ class Storage:
                 for doc in flattened_docs
             }
 
+            # Helper function to normalize timestamps for comparison
+            def normalize_timestamp(timestamp):
+                """Normalize timestamps to comparable format"""
+                if isinstance(timestamp, str):
+                    try:
+                        # Try to parse ISO format string to datetime
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        return dt.timestamp()
+                    except (ValueError, AttributeError):
+                        # If parsing fails, return 0 to force re-flattening
+                        return 0
+                elif isinstance(timestamp, (int, float)):
+                    # Already a Unix timestamp
+                    return timestamp
+                else:
+                    # Unknown type, return 0 to force re-flattening
+                    return 0
+
             # Find entities that need flattening
             entities_to_flatten = []
             for entity in original_entities:
@@ -1338,10 +1403,16 @@ class Storage:
                 entity_id = entity["id"]
                 entity_updated = entity.get("updated_at", 0)
 
+                # Normalize timestamps for comparison
+                normalized_entity_updated = normalize_timestamp(entity_updated)
+                normalized_flattened_updated = normalize_timestamp(
+                    flattened_ids.get(entity_id, 0)
+                )
+
                 # Check if entity needs flattening
                 if (entity_id not in flattened_ids or
                     not flattened_ids[entity_id] or
-                    entity_updated > flattened_ids[entity_id]):
+                    normalized_entity_updated > normalized_flattened_updated):
                     entities_to_flatten.append(entity)
 
                     if len(entities_to_flatten) >= batch_size:
