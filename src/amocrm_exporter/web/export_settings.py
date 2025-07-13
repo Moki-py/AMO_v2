@@ -144,6 +144,9 @@ class ExportSettingsManager:
         fields = []
         all_field_names: set[str] = set()
 
+        # Initialize tracking for custom field names
+        self._custom_field_names = set()
+
         # Analyze field structure from sample documents
         for doc in sample_docs:
             self._extract_fields_from_doc(doc, all_field_names, entity_type)
@@ -159,6 +162,32 @@ class ExportSettingsManager:
         """Recursively extract field names from document"""
         for key, value in doc.items():
             if key.startswith('_'):
+                continue
+
+            # Special handling for custom_fields_values
+            if key == 'custom_fields_values' and isinstance(value, list):
+                # Process custom fields to extract field names
+                for custom_field in value:
+                    if isinstance(custom_field, dict):
+                        field_name = custom_field.get('field_name', '')
+                        field_id = custom_field.get('field_id', '')
+
+                        if field_name:
+                            # Use field_name as the column name (same as in exporters)
+                            column_name = field_name
+                            # Sanitize column name
+                            column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
+                            field_names.add(column_name)
+                            # Track this as a custom field name
+                            if hasattr(self, '_custom_field_names'):
+                                self._custom_field_names.add(column_name)
+                        elif field_id:
+                            # Fallback to field_id based name
+                            fallback_name = f"custom_field_{field_id}"
+                            field_names.add(fallback_name)
+                            # Track this as a custom field name
+                            if hasattr(self, '_custom_field_names'):
+                                self._custom_field_names.add(fallback_name)
                 continue
 
             full_key = f"{prefix}.{key}" if prefix else key
@@ -209,12 +238,24 @@ class ExportSettingsManager:
 
     def _is_custom_field(self, field_name: str) -> bool:
         """Determine if field is a custom field"""
-        # Custom fields often contain 'custom_fields' in path or have specific patterns
-        return (
-            'custom_fields' in field_name or
+        # Check if it's a custom field based on:
+        # 1. Contains 'custom_fields' in path (old format)
+        # 2. Starts with 'custom_field_' (fallback format)
+        # 3. Matches a known custom field pattern
+        if ('custom_fields' in field_name or
+            field_name.startswith('custom_field_') or
             bool(re.match(r'.*_\d+_.*', field_name)) or
-            'cf_' in field_name.lower()
-        )
+            'cf_' in field_name.lower()):
+            return True
+
+        # Check if this field name exists in the sample data's custom_fields_values
+        # This is a more robust check for the new format
+        return self._is_field_from_custom_fields_values(field_name)
+
+    def _is_field_from_custom_fields_values(self, field_name: str) -> bool:
+        """Check if field name came from custom_fields_values processing"""
+        # This will be set during field extraction if the field came from custom_fields_values
+        return hasattr(self, '_custom_field_names') and field_name in getattr(self, '_custom_field_names', set())
 
     def _extract_custom_field_id(self, field_name: str) -> Optional[str]:
         """Extract custom field ID from field name"""
@@ -264,6 +305,40 @@ class ExportSettingsManager:
 
     def _get_nested_value(self, doc: Dict, field_path: str) -> Any:
         """Get value from nested field path"""
+        # Check if this is a custom field that needs special handling
+        if hasattr(self, '_custom_field_names') and field_path in getattr(self, '_custom_field_names', set()):
+            # This is a custom field - look for it in custom_fields_values
+            custom_fields_values = doc.get('custom_fields_values', [])
+            if isinstance(custom_fields_values, list):
+                for custom_field in custom_fields_values:
+                    if isinstance(custom_field, dict):
+                        field_name = custom_field.get('field_name', '')
+                        field_id = custom_field.get('field_id', '')
+
+                        # Check if this custom field matches our field_path
+                        if field_name and field_name == field_path:
+                            # Extract the value from the custom field
+                            values = custom_field.get('values', [])
+                            if values:
+                                if len(values) == 1:
+                                    return values[0].get('value', '')
+                                else:
+                                    # Multiple values - join them
+                                    value_list = [str(val.get('value', '')) for val in values if val.get('value')]
+                                    return ', '.join(value_list)
+                        elif field_id and field_path == f"custom_field_{field_id}":
+                            # Fallback matching by field_id
+                            values = custom_field.get('values', [])
+                            if values:
+                                if len(values) == 1:
+                                    return values[0].get('value', '')
+                                else:
+                                    # Multiple values - join them
+                                    value_list = [str(val.get('value', '')) for val in values if val.get('value')]
+                                    return ', '.join(value_list)
+            return None
+
+        # Regular field handling
         keys = field_path.split('.')
         value = doc
 
