@@ -1258,7 +1258,7 @@ class Storage:
                                 "branches": [
                                     # If updated_at is a string, convert to date
                                     {
-                                        "case": {"$type": ["$updated_at", "string"]},
+                                        "case": {"$eq": [{"$type": "$updated_at"}, "string"]},
                                         "then": {
                                             "$convert": {
                                                 "input": "$updated_at",
@@ -1269,7 +1269,7 @@ class Storage:
                                     },
                                     # If updated_at is a number (Unix timestamp), convert to date
                                     {
-                                        "case": {"$type": ["$updated_at", "number"]},
+                                        "case": {"$eq": [{"$type": "$updated_at"}, "number"]},
                                         "then": {
                                             "$convert": {
                                                 "input": {"$multiply": ["$updated_at", 1000]},

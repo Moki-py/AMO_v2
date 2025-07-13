@@ -5,30 +5,38 @@ Parallel exporter for AmoCRM data
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 from ..core.api import AmoCRMAPI
-from ..storage.storage import Storage
-from ..storage.state_manager import StateManager
 from ..core.logger import log_event
+from ..storage.state_manager import StateManager
+from ..storage.storage import Storage
+from ..enrichment.data_enrichment import DataEnricher
 
 
 class ParallelExporter:
-    """Handles parallel data export from AmoCRM"""
+    """Class for parallel export of AmoCRM data with Data Enrichment support"""
 
     def __init__(self, max_workers: int = 4):
-        """Initialize the parallel exporter"""
+        """Initialize the parallel exporter with data enrichment capabilities"""
         self.max_workers = max_workers
         self.api = AmoCRMAPI()
         self.storage = Storage()
+        # Initialize logger with storage after storage is ready
         from ..core import logger
         logger.init_storage(self.storage)
         self.state_manager = StateManager()
+        self.data_enricher = DataEnricher(self.storage)
+
+        # Thread management
         self.threads: dict[str, threading.Thread] = {}
         self.stop_flags: dict[str, bool] = {}
 
-        # Verify running exports from previous session
+        # Validate existing exports and clean up inconsistent states
         self._validate_running_exports()
+
+        # Synchronize state with database on startup
+        self._synchronize_state_with_db()
 
     def _validate_running_exports(self):
         """Validate that exports marked as running in state can actually be found"""
@@ -233,7 +241,123 @@ class ParallelExporter:
         date_from: str | None = None,
         date_to: str | None = None,
     ):
-        """Export all entity types in correct order for data dependencies"""
+        """Export all entity types in correct order for data dependencies - SEQUENTIAL execution"""
+        log_event("exporter", "info", "Starting sequential export of all entities")
+
+        # 1. First import users - needed for enriching other entities
+        log_event("exporter", "info", "Step 1/7: Starting users import...")
+        self.export_users(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for users to complete
+        if "users" in self.threads:
+            log_event("exporter", "info", "Waiting for users import to complete...")
+            self.threads["users"].join()
+            log_event("exporter", "info", "Users import completed!")
+
+        # 2. Import custom fields metadata - needed for data enrichment
+        log_event("exporter", "info", "Step 2/7: Starting custom_fields import...")
+        self.export_custom_fields(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for custom fields to complete
+        if "custom_fields" in self.threads:
+            log_event("exporter", "info", "Waiting for custom_fields import to complete...")
+            self.threads["custom_fields"].join()
+            log_event("exporter", "info", "Custom_fields import completed!")
+
+        # 3. Import deals - before events to ensure deals exist for event references
+        log_event("exporter", "info", "Step 3/7: Starting deals import...")
+        self.export_deals(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for deals to complete
+        if "deals" in self.threads:
+            log_event("exporter", "info", "Waiting for deals import to complete...")
+            self.threads["deals"].join()
+            log_event("exporter", "info", "Deals import completed!")
+
+        # 4. Import events - after deals so they can reference deals
+        log_event("exporter", "info", "Step 4/7: Starting events import...")
+        self.export_events(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for events to complete
+        if "events" in self.threads:
+            log_event("exporter", "info", "Waiting for events import to complete...")
+            self.threads["events"].join()
+            log_event("exporter", "info", "Events import completed!")
+
+        # 5. Import other entities - order less critical
+        log_event("exporter", "info", "Step 5/7: Starting contacts import...")
+        self.export_contacts(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for contacts to complete
+        if "contacts" in self.threads:
+            log_event("exporter", "info", "Waiting for contacts import to complete...")
+            self.threads["contacts"].join()
+            log_event("exporter", "info", "Contacts import completed!")
+
+        log_event("exporter", "info", "Step 6/7: Starting companies import...")
+        self.export_companies(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for companies to complete
+        if "companies" in self.threads:
+            log_event("exporter", "info", "Waiting for companies import to complete...")
+            self.threads["companies"].join()
+            log_event("exporter", "info", "Companies import completed!")
+
+        log_event("exporter", "info", "Step 7/7: Starting pipelines import...")
+        self.export_pipelines(
+            force_restart=force_restart,
+            batch_save=batch_save,
+            batch_size=batch_size,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        # Wait for pipelines to complete
+        if "pipelines" in self.threads:
+            log_event("exporter", "info", "Waiting for pipelines import to complete...")
+            self.threads["pipelines"].join()
+            log_event("exporter", "info", "Pipelines import completed!")
+
+        log_event("exporter", "info", "✅ Sequential export of all entities completed successfully!")
+
+    def export_all_parallel(
+        self,
+        force_restart: bool = False,
+        batch_save: bool = True,
+        batch_size: int = 10,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ):
+        """Export all entity types in parallel (old behavior)"""
         # 1. First import users - needed for enriching other entities
         self.export_users(
             force_restart=force_restart,
@@ -562,9 +686,12 @@ class ParallelExporter:
                     entity_ids = [entity["id"] for entity in filtered_entities if "id" in entity]
                     current_page_exported_ids = entity_ids
 
+                    # Enrich the filtered entities with user data and custom fields
+                    enriched_entities = self._enrich_entities_for_export(filtered_entities, entity_type)
+
                     # If batch save is enabled, add to batch
                     if batch_save:
-                        all_entities.extend(filtered_entities)
+                        all_entities.extend(enriched_entities)
                         batch_count += 1
 
                         # Save batch if reached batch size or no more data
@@ -587,14 +714,14 @@ class ParallelExporter:
                             log_event(
                                 "exporter",
                                 "info",
-                                f"Saved {len(all_entities)} {entity_type} after "
+                                f"Saved {len(all_entities)} enriched {entity_type} after "
                                 f"processing {batch_count} pages",
                             )
                             all_entities = []  # Clear the batch
                             batch_count = 0
                     else:
                         # Otherwise, save directly
-                        self.storage.append_entities(entity_type, filtered_entities)
+                        self.storage.append_entities(entity_type, enriched_entities)
 
                         # Mark entities as exported
                         if entity_ids:
@@ -645,6 +772,31 @@ class ParallelExporter:
             self.state_manager.update_export_progress(
                 entity_type, current_page - 1, True
             )
+
+    def _enrich_entities_for_export(self, entities: List[Dict[str, Any]], entity_type: str) -> List[Dict[str, Any]]:
+        """Enrich entities with user data, pipeline info and flatten custom fields before export"""
+        if not entities:
+            return entities
+
+        try:
+            log_event("exporter", "info", f"Enriching {len(entities)} {entity_type} entities...")
+
+            # Use DataEnricher to process the batch with all enrichment options
+            enriched_entities = self.data_enricher.process_entities_batch(
+                entities,
+                entity_type,
+                flatten_fields=True,  # Flatten custom fields for better analysis
+                enrich_users=True,    # Add user information (names, emails, etc.)
+                enrich_pipelines=(entity_type == "deals" or entity_type == "leads")  # Add pipeline info for deals
+            )
+
+            log_event("exporter", "info", f"✅ Successfully enriched {len(enriched_entities)} {entity_type} entities")
+            return enriched_entities
+
+        except Exception as e:
+            log_event("exporter", "error", f"❌ Error enriching {entity_type} entities: {e}")
+            # Return original entities if enrichment fails
+            return entities
 
     def stop_export(self, entity_type: str):
         """Stop an export thread"""
