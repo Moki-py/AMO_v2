@@ -633,99 +633,98 @@ class ParallelExporter:
         date_from: str | None = None,
         date_to: str | None = None,
     ):
-        """Generic worker function for exporting entities"""
+        """
+        Worker function for exporting entities of any type with robust error handling
+        """
+        log_event("exporter", "info", f"Starting {entity_type} export")
 
-        # Get the last processed page from state
-        start_page = self.state_manager.get_last_page(entity_type)
-        current_page = start_page + 1 if start_page > 0 else 1
+        # Get the last exported page from state or start from page 1
+        start_page = self.state_manager.get_last_page(entity_type) + 1
 
-        # Prepare storage
-        all_entities = (
-            self.storage.get_entities(entity_type) if batch_save else []
-        )
-        batch_count = 0
-        pages_since_last_save = 0  # Track pages for more frequent state saves
-
-        log_event(
-            "exporter",
-            "info",
-            f"Starting {entity_type} export from page {current_page}",
-        )
-
-        # Process pages until no more data or stop flag
+        current_page = start_page
         has_more = True
-        last_heartbeat_time = datetime.now()
+        all_entities = []  # Batch collection
+        batch_count = 0
+        pages_since_last_save = 0
+        consecutive_errors = 0  # Добавляем счетчик последовательных ошибок
+        max_consecutive_errors = 5  # Максимальное количество последовательных ошибок
 
         while has_more and not self.stop_flags.get(entity_type, False):
             try:
-                # Send heartbeat every 2 minutes
-                current_time = datetime.now()
-                if (current_time - last_heartbeat_time).total_seconds() >= 120:  # 2 minutes
-                    self.state_manager.send_heartbeat(entity_type,
-                        thread_id=threading.current_thread().name,
-                        metadata={
-                            "current_page": current_page,
-                            "batch_save": batch_save,
-                            "batch_size": batch_size,
-                            "entities_processed": len(all_entities) if batch_save else 0
-                        }
-                    )
-                    last_heartbeat_time = current_time
-
-                # Get entities for current page
+                # Get a page of entities
                 entities, has_more = page_getter(current_page, date_from, date_to)
 
-                # Filter out already exported entities to prevent duplicates
-                filtered_entities = self.state_manager.filter_already_exported(
-                    entity_type, entities
-                )
+                # Сбрасываем счетчик ошибок при успешном запросе
+                consecutive_errors = 0
 
-                # Track entities that were actually processed
+                # Handle empty pages - treat as end of data
+                if not entities and has_more:
+                    log_event("exporter", "info",
+                             f"Empty page {current_page} for {entity_type}, treating as end of data")
+                    has_more = False
+                    break
+
+                if not entities:
+                    # No entities on this page, likely reached the end
+                    log_event("exporter", "info", f"No more {entity_type} entities found on page {current_page}")
+                    has_more = False
+                    break
+
+                # Filter out duplicate entities if we have exported IDs tracking
+                exported_ids = self.state_manager.get_exported_ids(entity_type)
+                filtered_entities = []
+                entity_ids = []
                 current_page_exported_ids = []
-                if filtered_entities:
-                    entity_ids = [entity["id"] for entity in filtered_entities if "id" in entity]
-                    current_page_exported_ids = entity_ids
 
-                    # Enrich the filtered entities with user data and custom fields
-                    enriched_entities = self._enrich_entities_for_export(filtered_entities, entity_type)
+                for entity in entities:
+                    entity_id = entity.get("id")
+                    if entity_id:
+                        entity_ids.append(entity_id)
+                        if entity_id not in exported_ids:
+                            filtered_entities.append(entity)
+                            current_page_exported_ids.append(entity_id)
 
-                    # If batch save is enabled, add to batch
-                    if batch_save:
-                        all_entities.extend(enriched_entities)
-                        batch_count += 1
+                # Skip if all entities on this page were already exported
+                if not filtered_entities:
+                    log_event(
+                        "exporter",
+                        "info",
+                        f"All {len(entities)} entities on page {current_page} already exported, skipping",
+                    )
+                    current_page += 1
+                    continue
 
-                        # Save batch if reached batch size or no more data
-                        if batch_count >= batch_size or not has_more:
-                            # Create recovery point before critical operation
-                            self.state_manager.create_recovery_point({
-                                "operation": "batch_save",
-                                "entity_type": entity_type,
-                                "entities_count": len(all_entities),
-                                "current_page": current_page
-                            })
+                # Enrich entities with user data and flatten custom fields
+                enriched_entities = self._enrich_entities_for_export(filtered_entities, entity_type)
 
-                            self.storage.append_entities(entity_type, all_entities)
+                # Add to batch or save directly based on batch_save flag
+                if batch_save:
+                    all_entities.extend(enriched_entities)
+                    batch_count += 1
 
-                            # Mark entities as exported
-                            if entity_ids:
-                                all_entity_ids = [e["id"] for e in all_entities if "id" in e]
-                                self.state_manager.add_exported_ids(entity_type, all_entity_ids)
-
-                            log_event(
-                                "exporter",
-                                "info",
-                                f"Saved {len(all_entities)} enriched {entity_type} after "
-                                f"processing {batch_count} pages",
-                            )
-                            all_entities = []  # Clear the batch
-                            batch_count = 0
-                    else:
-                        # Otherwise, save directly
-                        self.storage.append_entities(entity_type, enriched_entities)
+                    # Save batch when it reaches the target size
+                    if len(all_entities) >= batch_size:
+                        self.storage.append_entities(entity_type, all_entities)
 
                         # Mark entities as exported
-                        if entity_ids:
-                            self.state_manager.add_exported_ids(entity_type, entity_ids)
+                        batch_entity_ids = [e.get("id") for e in all_entities if e.get("id")]
+                        if batch_entity_ids:
+                            self.state_manager.add_exported_ids(entity_type, batch_entity_ids)
+
+                        log_event(
+                            "exporter",
+                            "info",
+                            f"Saved batch of {len(all_entities)} {entity_type} entities (batch {batch_count})",
+                        )
+                        all_entities = []  # Clear the batch
+                        batch_count = 0
+                else:
+                    # Otherwise, save directly
+                    self.storage.append_entities(entity_type, enriched_entities)
+
+                    # Mark entities as exported
+                    if entity_ids:
+                        self.state_manager.add_exported_ids(entity_type, entity_ids)
 
                 # Update state every 2-3 pages for better resume capability
                 pages_since_last_save += 1
@@ -747,14 +746,43 @@ class ParallelExporter:
                 current_page += 1
 
             except Exception as e:
+                consecutive_errors += 1
+
                 log_event(
                     "exporter",
                     "error",
-                    f"Error processing {entity_type} page {current_page}: {e}",
+                    f"Error processing {entity_type} page {current_page}: {e} (attempt {consecutive_errors}/{max_consecutive_errors})",
                 )
 
-                # Wait a bit before retrying
-                time.sleep(5)
+                # Если достигли максимального количества последовательных ошибок, останавливаемся
+                if consecutive_errors >= max_consecutive_errors:
+                    log_event(
+                        "exporter",
+                        "error",
+                        f"Maximum consecutive errors ({max_consecutive_errors}) reached for {entity_type}. Stopping export."
+                    )
+                    break
+
+                # Увеличиваем время ожидания с каждой ошибкой
+                wait_time = min(5 * consecutive_errors, 30)  # От 5 до 30 секунд
+                log_event(
+                    "exporter",
+                    "info",
+                    f"Waiting {wait_time} seconds before retrying {entity_type} page {current_page}"
+                )
+                time.sleep(wait_time)
+
+        # Save any remaining entities in the batch
+        if batch_save and all_entities:
+            self.storage.append_entities(entity_type, all_entities)
+            batch_entity_ids = [e.get("id") for e in all_entities if e.get("id")]
+            if batch_entity_ids:
+                self.state_manager.add_exported_ids(entity_type, batch_entity_ids)
+            log_event(
+                "exporter",
+                "info",
+                f"Saved final batch of {len(all_entities)} {entity_type} entities",
+            )
 
         # Ensure final state is saved
         if has_more:

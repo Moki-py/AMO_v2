@@ -64,13 +64,43 @@ class AmoCRMAPI:
             )
 
             response.raise_for_status()
-            return response.json()
+
+            # Проверим, что ответ не пустой
+            if not response.content:
+                error_msg = f"Empty response from API for {endpoint}"
+                log_event("api", "warning", error_msg)
+                return {}
+
+            # Проверим Content-Type
+            content_type = response.headers.get('content-type', '').lower()
+            if 'application/json' not in content_type:
+                error_msg = f"Non-JSON response from API for {endpoint}, content-type: {content_type}"
+                log_event("api", "warning", error_msg)
+                log_event("api", "debug", f"Response content: {response.text[:500]}")
+                return {}
+
+            try:
+                return response.json()
+            except ValueError as json_error:
+                error_msg = f"Failed to parse JSON response for {endpoint}: {json_error}"
+                log_event("api", "error", error_msg)
+                log_event("api", "debug", f"Response content: {response.text[:500]}")
+                # Возвращаем пустой словарь вместо исключения, чтобы не прерывать процесс
+                return {}
+
         except requests.exceptions.HTTPError as e:
-            error_msg = f"API request error: {e}"
+            error_msg = f"HTTP error for {endpoint}: {e}"
             log_event("api", "error", error_msg)
+
+            # Логируем детали ответа для лучшей диагностики
+            if hasattr(e, 'response') and e.response:
+                log_event("api", "debug", f"HTTP status: {e.response.status_code}")
+                log_event("api", "debug", f"Response headers: {dict(e.response.headers)}")
+                log_event("api", "debug", f"Response content: {e.response.text[:500]}")
+
             raise
         except Exception as e:
-            error_msg = f"API request error: {e}"
+            error_msg = f"API request error for {endpoint}: {e}"
             log_event("api", "error", error_msg)
             raise
 
@@ -132,6 +162,15 @@ class AmoCRMAPI:
         try:
             response = self._make_request("GET", entity_type, params=params)
 
+            # Проверяем, что получили корректный ответ
+            if not response:
+                log_event(
+                    "api",
+                    "warning",
+                    f"Empty response for {entity_type} page {page} - likely no more pages available"
+                )
+                return [], False
+
             # Extract entities from response
             if (
                 "_embedded" in response
@@ -164,7 +203,8 @@ class AmoCRMAPI:
                 "error",
                 f"Error fetching {entity_type} page {page}: {e}",
             )
-            raise
+            # Вместо re-raise, возвращаем пустой результат для предотвращения краха всего процесса
+            return [], False
 
     def get_all_deals(self) -> list[dict[str, Any]]:
         """Get all deals with pagination handling"""
@@ -245,6 +285,15 @@ class AmoCRMAPI:
         try:
             response = self._make_request("GET", "users", params=params)
 
+            # Проверяем, что получили корректный ответ
+            if not response:
+                log_event(
+                    "api",
+                    "warning",
+                    f"Empty response for users page {page} - likely no more pages available"
+                )
+                return [], False
+
             # Extract users from response
             if (
                 "_embedded" in response
@@ -277,7 +326,8 @@ class AmoCRMAPI:
                 "error",
                 f"Error fetching users page {page}: {e}",
             )
-            raise
+            # Вместо re-raise, возвращаем пустой результат для предотвращения краха всего процесса
+            return [], False
 
     def get_all_users(self) -> list[dict[str, Any]]:
         """Get all users with pagination handling"""
@@ -324,6 +374,15 @@ class AmoCRMAPI:
         try:
             response = self._make_request("GET", "leads/pipelines", params=params)
 
+            # Проверяем, что получили корректный ответ
+            if not response:
+                log_event(
+                    "api",
+                    "warning",
+                    f"Empty response for pipelines page {page} - likely no more pages available"
+                )
+                return [], False
+
             # Extract pipelines from response
             if (
                 "_embedded" in response
@@ -356,7 +415,8 @@ class AmoCRMAPI:
                 "error",
                 f"Error fetching pipelines page {page}: {e}",
             )
-            raise
+            # Вместо re-raise, возвращаем пустой результат для предотвращения краха всего процесса
+            return [], False
 
     def get_all_pipelines(self) -> list[dict[str, Any]]:
         """Get all pipelines with detailed status information"""
