@@ -42,7 +42,6 @@ services:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USER:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASS:-4RFV5tgb6YHN}
       - MONGO_INITDB_DATABASE=${MONGODB_DB:-amocrm_exporter}
-      - MONGO_INITDB_DATABASE=amocrm_exporter
     volumes:
       - mongo_data_1:/data/db
       - mongo_config:/data/configdb
@@ -118,7 +117,7 @@ services:
       - RABBITMQ_USER=${RABBITMQ_USER:-admin}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASS:-4RFV5tgb6YHN}
       - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASS:-4RFV5tgb6YHN}@rabbitmq:5672/
-      - MONGODB_URI=mongodb://mongodb:27017
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:4RFV5tgb6YHN@mongodb:27017/amocrm_exporter?authSource=admin}
       - MONGODB_DB=${MONGODB_DB:-amocrm_exporter}
       - MONGODB_POOL_SIZE=50
       - MONGODB_MAX_IDLE_TIME=60000
@@ -165,8 +164,8 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=${RABBITMQ_USER:-admin}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASS:-secure_password}
-      - MONGODB_URI=mongodb://mongodb:27017
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASS:-4RFV5tgb6YHN}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:4RFV5tgb6YHN@mongodb:27017/amocrm_exporter?authSource=admin}
       - MONGODB_DB=${MONGODB_DB:-amocrm_exporter}
       - MONGODB_POOL_SIZE=50
       - REDIS_HOST=redis
