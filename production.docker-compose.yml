@@ -172,6 +172,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    env_file:
+      - .env
     volumes:
       - ./logs/api:/app/logs
     networks:
