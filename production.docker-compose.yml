@@ -151,7 +151,7 @@ services:
       args:
         - BUILD_ENV=production
     container_name: amo_api_prod
-    command: uvicorn modern_ui_server:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --access-log --log-level info
+    command: uvicorn src.amocrm_exporter.web.modern_ui_server:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --access-log --log-level info
     ports:
       - "8000:8000"
     restart: unless-stopped
