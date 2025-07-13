@@ -705,12 +705,17 @@
         function updateAvailableFieldsDisplay() {
             const container = document.getElementById('available-fields');
             const searchTerm = document.getElementById('field-search').value.toLowerCase();
+            const showTechnicalFields = document.getElementById('show-unnamed-fields').checked;
 
             const filteredFields = availableFields.filter(field => {
                 // Filter by search term
                 const matchesSearch = field.field_name.toLowerCase().includes(searchTerm) ||
                                     field.description.toLowerCase().includes(searchTerm);
-                return matchesSearch;
+
+                // Filter by user friendliness (hide technical fields if checkbox is not checked)
+                const isUserFriendlyEnough = showTechnicalFields || field.is_user_friendly;
+
+                return matchesSearch && isUserFriendlyEnough;
             });
 
             container.innerHTML = '';

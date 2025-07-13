@@ -285,6 +285,15 @@ class ExportSettingsManager:
         display_name = field_name
         if is_custom and hasattr(self, '_original_field_names') and field_name in self._original_field_names:
             display_name = self._original_field_names[field_name]
+        elif is_custom:
+            # For custom fields without proper names, create a better display name
+            if field_name.startswith('custom_field_'):
+                custom_field_id = field_name.replace('custom_field_', '')
+                display_name = f"Кастомное поле {custom_field_id}"
+            else:
+                # Remove "custom_field_" prefix and format normally
+                cleaned_name = field_name.replace('custom_field_', '').replace('_', ' ')
+                display_name = cleaned_name.title() if cleaned_name else f"Кастомное поле"
         else:
             display_name = self._format_field_name(field_name)
 
@@ -298,8 +307,8 @@ class ExportSettingsManager:
                 not any(char.isalpha() for char in field_name.replace('custom_field_', '').replace('_', ''))):
                 # This is a purely numeric field ID without a proper name
                 is_user_friendly = False
-            elif display_name.startswith('Custom Field '):
-                # Generic fallback name was used
+            elif display_name.startswith('Кастомное поле ') and display_name.replace('Кастомное поле ', '').isdigit():
+                # Generic fallback name was used (just ID number)
                 is_user_friendly = False
 
         return FieldInfo(
@@ -509,29 +518,52 @@ class ExportSettingsManager:
     def _generate_field_description(self, field_name: str, field_type: str, is_custom: bool) -> str:
         """Generate field description"""
         if is_custom:
-            return f"Custom {field_type} field"
+            field_type_ru = {
+                'text': 'текстовое',
+                'number': 'числовое',
+                'integer': 'числовое',
+                'boolean': 'логическое',
+                'date': 'дата',
+                'email': 'email',
+                'url': 'ссылка',
+                'array': 'массив',
+                'object': 'объект'
+            }.get(field_type, field_type)
+            return f"Кастомное {field_type_ru} поле"
 
         # Generate descriptions for common fields
         descriptions = {
-            'id': 'Unique identifier',
-            'name': 'Name or title',
-            'created_at': 'Creation date',
-            'updated_at': 'Last modification date',
-            'status_id': 'Status identifier',
-            'responsible_user_id': 'Responsible user ID',
-            'price': 'Price or value',
-            'pipeline_id': 'Pipeline identifier',
-            'stage_id': 'Stage identifier',
-            'tags': 'Associated tags',
-            'contact': 'Contact information',
-            'company': 'Company information',
+            'id': 'Уникальный идентификатор',
+            'name': 'Название или имя',
+            'created_at': 'Дата создания',
+            'updated_at': 'Дата последнего изменения',
+            'status_id': 'Идентификатор статуса',
+            'responsible_user_id': 'ID ответственного пользователя',
+            'price': 'Цена или стоимость',
+            'pipeline_id': 'Идентификатор воронки',
+            'stage_id': 'Идентификатор этапа',
+            'tags': 'Связанные теги',
+            'contact': 'Контактная информация',
+            'company': 'Информация о компании',
         }
 
         for key, desc in descriptions.items():
             if key in field_name.lower():
                 return desc
 
-        return f"{field_type.capitalize()} field"
+        field_type_ru = {
+            'text': 'Текстовое',
+            'number': 'Числовое',
+            'integer': 'Числовое',
+            'boolean': 'Логическое',
+            'date': 'Поле даты',
+            'email': 'Email',
+            'url': 'Ссылка',
+            'array': 'Массив',
+            'object': 'Объект',
+            'unknown': 'Неизвестное'
+        }.get(field_type, field_type.capitalize())
+        return f"{field_type_ru} поле"
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         """Check if cache is still valid"""
