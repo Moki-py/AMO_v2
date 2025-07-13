@@ -508,9 +508,15 @@
                         <i class="fas fa-list"></i>
                         Доступные поля
                     </div>
-                    <button class="btn btn-secondary" onclick="refreshFields()">
-                        <i class="fas fa-refresh"></i>
-                    </button>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer;">
+                            <input type="checkbox" id="show-unnamed-fields" style="cursor: pointer;">
+                            <span>Технические поля</span>
+                        </label>
+                        <button class="btn btn-secondary" onclick="refreshFields()">
+                            <i class="fas fa-refresh"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="search-box">
                     <input type="text" class="search-input" placeholder="Поиск полей..." id="field-search">
@@ -648,20 +654,26 @@
                 showLoadingInPanel('available-fields');
 
                 const cacheKey = `${entity}_fields`;
-                if (!forceRefresh && fieldsCache[cacheKey]) {
-                    availableFields = fieldsCache[cacheKey];
+                const includeUnnamed = document.getElementById('show-unnamed-fields').checked;
+                const fullCacheKey = `${cacheKey}_${includeUnnamed}`;
+
+                if (!forceRefresh && fieldsCache[fullCacheKey]) {
+                    availableFields = fieldsCache[fullCacheKey];
                     updateAvailableFieldsDisplay();
                     return;
                 }
 
-                const response = await fetch(`/api/export-settings/fields/${entity}?force_refresh=${forceRefresh}`);
+                const response = await fetch(`/api/export-settings/fields/${entity}?force_refresh=${forceRefresh}&include_unnamed_fields=${includeUnnamed}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
                 const data = await response.json();
                 availableFields = data.fields;
-                fieldsCache[cacheKey] = availableFields;
+                fieldsCache[fullCacheKey] = availableFields;
+
+                // Show statistics in console
+                console.log(`Loaded ${data.total_count} fields (${data.friendly_count} friendly, ${data.technical_count} technical)`);
 
                 updateAvailableFieldsDisplay();
 
@@ -694,10 +706,12 @@
             const container = document.getElementById('available-fields');
             const searchTerm = document.getElementById('field-search').value.toLowerCase();
 
-            const filteredFields = availableFields.filter(field =>
-                field.field_name.toLowerCase().includes(searchTerm) ||
-                field.description.toLowerCase().includes(searchTerm)
-            );
+            const filteredFields = availableFields.filter(field => {
+                // Filter by search term
+                const matchesSearch = field.field_name.toLowerCase().includes(searchTerm) ||
+                                    field.description.toLowerCase().includes(searchTerm);
+                return matchesSearch;
+            });
 
             container.innerHTML = '';
 
@@ -720,6 +734,10 @@
             const fillColor = fillPercentage > 70 ? 'var(--success)' :
                             fillPercentage > 30 ? 'var(--warning)' : 'var(--danger)';
 
+            // Add visual indicator for technical fields
+            const technicalBadge = !field.is_user_friendly ?
+                '<div class="field-technical" style="position: absolute; top: 8px; right: 8px; background: var(--warning); color: white; font-size: 0.7rem; padding: 2px 6px; border-radius: 10px;">ID</div>' : '';
+
             div.innerHTML = `
                 <div class="field-name">${field.field_name}</div>
                 <div class="field-type">${field.field_type}</div>
@@ -733,6 +751,7 @@
                 ${field.preview_data && field.preview_data.length > 0 ?
                     `<div class="field-preview">Пример: ${field.preview_data[0]}</div>` : ''}
                 ${field.is_custom ? '<div class="field-custom">Custom</div>' : ''}
+                ${technicalBadge}
             `;
 
             // Add drag handlers
@@ -746,6 +765,14 @@
         function setupSearch() {
             const searchInput = document.getElementById('field-search');
             searchInput.addEventListener('input', updateAvailableFieldsDisplay);
+
+            // Add unnamed fields checkbox handler
+            const unnamedCheckbox = document.getElementById('show-unnamed-fields');
+            unnamedCheckbox.addEventListener('change', function() {
+                // Clear cache when toggling unnamed fields
+                fieldsCache = {};
+                loadFieldsForEntity(currentEntity, true);
+            });
         }
 
         // Field selection
@@ -1132,13 +1159,16 @@
                 showLoadingInPanel('available-fields');
 
                 const cacheKey = `${entity}_fields`;
-                if (!forceRefresh && fieldsCache[cacheKey]) {
-                    availableFields = fieldsCache[cacheKey];
+                const includeUnnamed = document.getElementById('show-unnamed-fields').checked;
+                const fullCacheKey = `${cacheKey}_${includeUnnamed}`;
+
+                if (!forceRefresh && fieldsCache[fullCacheKey]) {
+                    availableFields = fieldsCache[fullCacheKey];
                     updateAvailableFieldsDisplay();
                     return;
                 }
 
-                const response = await fetch(`/api/export-settings/fields/${entity}?force_refresh=${forceRefresh}`);
+                const response = await fetch(`/api/export-settings/fields/${entity}?force_refresh=${forceRefresh}&include_unnamed_fields=${includeUnnamed}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -1167,7 +1197,7 @@
                     console.warn('Could not load flattened statistics:', error);
                 }
 
-                fieldsCache[cacheKey] = availableFields;
+                fieldsCache[fullCacheKey] = availableFields;
                 updateAvailableFieldsDisplay();
 
             } catch (error) {

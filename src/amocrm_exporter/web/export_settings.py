@@ -48,6 +48,7 @@ class FieldInfo:
     custom_id: Optional[str] = None
     preview_data: Optional[List[str]] = None
     description: Optional[str] = None
+    is_user_friendly: bool = True  # False для полей вида "custom_field_123456"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -99,34 +100,37 @@ class ExportSettingsManager:
 
         log_event("export_settings", "info", "Export Settings Manager initialized")
 
-    async def get_available_fields(self, entity_type: EntityType, force_refresh: bool = False) -> List[FieldInfo]:
-        """Get all available fields for an entity type with caching"""
-        cache_key = f"{entity_type}_fields"
+    async def get_available_fields(self, entity_type: EntityType, force_refresh: bool = False, include_unnamed_fields: bool = False) -> List[FieldInfo]:
+        """Get available fields for an entity type with optional filtering of unnamed fields"""
 
-        # Check cache validity
+        # Generate cache key that includes the include_unnamed_fields parameter
+        cache_key = f"{entity_type.value}_fields{'_with_unnamed' if include_unnamed_fields else ''}"
+
+        # Check cache first (unless force refresh requested)
         if not force_refresh and self._is_cache_valid(cache_key):
-            cached_fields = self.fields_cache.get(cache_key, [])
-            if cached_fields:
-                log_event("export_settings", "debug", f"Returning cached fields for {entity_type}")
-                return cached_fields
+            log_event("export_settings", "info", f"Using cached fields for {entity_type}")
+            return self.fields_cache.get(cache_key, [])
 
-        log_event("export_settings", "info", f"Loading available fields for {entity_type}")
-
+        # Load fields from database
         try:
-            fields = await self._load_fields_from_db(entity_type)
+            fields = await self._load_fields_from_db(entity_type, include_unnamed_fields)
 
             # Cache the results
             self.fields_cache[cache_key] = fields
             self.last_cache_update[cache_key] = datetime.now()
 
-            log_event("export_settings", "info", f"Loaded {len(fields)} fields for {entity_type}")
-            return fields
+            # Log summary
+            friendly_count = sum(1 for f in fields if f.is_user_friendly)
+            unfriendly_count = len(fields) - friendly_count
+            log_event("export_settings", "info",
+                     f"Loaded {len(fields)} fields for {entity_type} (friendly: {friendly_count}, technical: {unfriendly_count})")
 
+            return fields
         except Exception as e:
             log_event("export_settings", "error", f"Error loading fields for {entity_type}: {e}")
-            return []
+            raise
 
-    async def _load_fields_from_db(self, entity_type: EntityType) -> List[FieldInfo]:
+    async def _load_fields_from_db(self, entity_type: EntityType, include_unnamed_fields: bool = False) -> List[FieldInfo]:
         """Load field information from database"""
         collection_name = self.entity_collections.get(entity_type)
         if not collection_name:
@@ -166,10 +170,25 @@ class ExportSettingsManager:
         for doc in sample_docs:
             self._extract_fields_from_doc(doc, all_field_names, entity_type)
 
-        # Convert to FieldInfo objects
+        # Convert to FieldInfo objects and filter based on user-friendliness
         for field_name in sorted(all_field_names):
             field_info = await self._create_field_info(field_name, entity_type, sample_docs)
+
+            # Filter out unnamed/technical fields unless explicitly requested
+            if not include_unnamed_fields and not field_info.is_user_friendly:
+                log_event("export_settings", "debug", f"Filtering out unnamed field: {field_name}")
+                continue
+
             fields.append(field_info)
+
+        # Log statistics about filtered fields
+        total_fields = len(all_field_names)
+        shown_fields = len(fields)
+        filtered_fields = total_fields - shown_fields
+
+        if filtered_fields > 0:
+            log_event("export_settings", "info",
+                     f"Filtered {filtered_fields} unnamed fields from {entity_type}, showing {shown_fields} user-friendly fields")
 
         return fields
 
@@ -269,6 +288,20 @@ class ExportSettingsManager:
         else:
             display_name = self._format_field_name(field_name)
 
+        # Determine if field is user-friendly
+        is_user_friendly = True
+        if is_custom:
+            # Check if this field has a technical name like "custom_field_123456"
+            # or if it wasn't properly named from field_name
+            if (field_name.startswith('custom_field_') and
+                field_name not in getattr(self, '_original_field_names', {}) and
+                not any(char.isalpha() for char in field_name.replace('custom_field_', '').replace('_', ''))):
+                # This is a purely numeric field ID without a proper name
+                is_user_friendly = False
+            elif display_name.startswith('Custom Field '):
+                # Generic fallback name was used
+                is_user_friendly = False
+
         return FieldInfo(
             field_id=field_name,
             field_name=display_name,
@@ -276,7 +309,8 @@ class ExportSettingsManager:
             is_custom=is_custom,
             custom_id=custom_id,
             preview_data=preview_data,
-            description=description
+            description=description,
+            is_user_friendly=is_user_friendly
         )
 
     def _is_custom_field(self, field_name: str) -> bool:

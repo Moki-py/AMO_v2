@@ -636,7 +636,7 @@ async def get_worker_status() -> dict:
 # Export Settings API Endpoints
 
 @app.get("/api/export-settings/fields/{entity_type}")
-async def get_available_fields(entity_type: str, force_refresh: bool = False) -> dict:
+async def get_available_fields(entity_type: str, force_refresh: bool = False, include_unnamed_fields: bool = False) -> dict:
     """Get available fields for an entity type"""
     try:
         # Convert to ExportEntityType - support all entity types
@@ -654,11 +654,23 @@ async def get_available_fields(entity_type: str, force_refresh: bool = False) ->
         if not export_entity_type:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
-        fields = await export_settings_manager.get_available_fields(export_entity_type, force_refresh)
+        fields = await export_settings_manager.get_available_fields(
+            export_entity_type,
+            force_refresh=force_refresh,
+            include_unnamed_fields=include_unnamed_fields
+        )
+
+        # Count friendly vs technical fields for response metadata
+        friendly_count = sum(1 for f in fields if f.is_user_friendly)
+        technical_count = len(fields) - friendly_count
+
         return {
             "entity_type": entity_type,
             "fields": [field.to_dict() for field in fields],
-            "total_count": len(fields)
+            "total_count": len(fields),
+            "friendly_count": friendly_count,
+            "technical_count": technical_count,
+            "include_unnamed_fields": include_unnamed_fields
         }
     except Exception as e:
         log_event("export_settings", "error", f"Error getting fields for {entity_type}: {e}")
