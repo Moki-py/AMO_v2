@@ -119,7 +119,7 @@ class SheetsExporter:
             log_event("sheets", "error", f"Error ensuring sheet exists: {e}")
             raise
 
-    def export_all_to_sheets(self, date_from: str = None, date_to: str = None) -> Dict[str, str]:
+    def export_all_to_sheets(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, str]:
         """
         Export all entity data to separate Google Sheets
         Returns a dictionary mapping entity types to their spreadsheet URLs
@@ -296,7 +296,12 @@ class SheetsExporter:
                     if not field_name or not field_id:
                         continue
 
-                    column_name = field_name
+                    # Use field_name as the primary column name, with field_id as fallback
+                    column_name = field_name if field_name else f"custom_field_{field_id}"
+
+                    # Sanitize column name to avoid issues
+                    column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
+
                     key = f"{field_id}_{field_name}"
                     field_type = field_types.get(key, '')
 

@@ -360,8 +360,11 @@ class ExcelExporter:
                 if not field_name or not field_id or not values:
                     continue
 
-                # Format column name to be more readable - include field ID for uniqueness
-                column_name = f"custom_{field_name}_{field_id}"
+                # Use field_name as the primary column name, with field_id as fallback
+                column_name = field_name if field_name else f"custom_field_{field_id}"
+
+                # Sanitize column name to avoid Excel issues
+                column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
 
                 # Get field type
                 key = f"{field_id}_{field_name}"
