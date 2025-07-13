@@ -293,16 +293,20 @@ class SheetsExporter:
                     field_id = field.get('field_id', '')
                     values = field.get('values', [])
 
-                    if not field_name or not field_id:
+                    if not field_id:
                         continue
 
-                    # Use field_name as the primary column name, with field_id as fallback
-                    column_name = field_name if field_name else f"custom_field_{field_id}"
+                    # Prioritize field_name over field_id for column naming
+                    if field_name:
+                        # Use field_name as the primary column name
+                        column_name = field_name
+                        # Sanitize column name to avoid issues
+                        column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
+                    else:
+                        # Fallback to field_id based naming
+                        column_name = f"custom_field_{field_id}"
 
-                    # Sanitize column name to avoid issues
-                    column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
-
-                    key = f"{field_id}_{field_name}"
+                    key = f"{field_id}_{field_name}" if field_name else f"{field_id}_"
                     field_type = field_types.get(key, '')
 
                     # Process field based on type

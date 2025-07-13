@@ -357,17 +357,21 @@ class ExcelExporter:
                 field_id = field.get('field_id', '')
                 values = field.get('values', [])
 
-                if not field_name or not field_id or not values:
+                if not field_id or not values:
                     continue
 
-                # Use field_name as the primary column name, with field_id as fallback
-                column_name = field_name if field_name else f"custom_field_{field_id}"
-
-                # Sanitize column name to avoid Excel issues
-                column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
+                # Prioritize field_name over field_id for column naming
+                if field_name:
+                    # Use field_name as the primary column name
+                    column_name = field_name
+                    # Sanitize column name to avoid Excel issues
+                    column_name = column_name.replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '')
+                else:
+                    # Fallback to field_id based naming
+                    column_name = f"custom_field_{field_id}"
 
                 # Get field type
-                key = f"{field_id}_{field_name}"
+                key = f"{field_id}_{field_name}" if field_name else f"{field_id}_"
                 field_type = field_types.get(key, '')
 
                 try:
@@ -401,7 +405,8 @@ class ExcelExporter:
                                 value_list.append(str(val['value']))
                         item[column_name] = ', '.join(value_list) if value_list else ''
                 except Exception as value_error:
-                    log_event("excel", "error", f"Error processing field {field_name}: {value_error}")
+                    field_display_name = field_name if field_name else f"field_{field_id}"
+                    log_event("excel", "error", f"Error processing field {field_display_name}: {value_error}")
                     item[column_name] = f"ERROR: {str(value_error)[:20]}"
         except Exception as e:
             log_event("excel", "error", f"Error processing custom fields: {e}")

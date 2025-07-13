@@ -290,13 +290,16 @@ class DataEnricher:
                     values = field["values"]
                     field_name = field.get("field_name")
 
-                    # Get human-readable field name from mapping
-                    if field_id in field_mapping:
-                        readable_name = field_mapping[field_id]
-                    elif field_name:
+                    # Prioritize field_name over any mapping or field_id
+                    if field_name:
+                        # Use the actual field_name from the data (most reliable)
                         readable_name = field_name
+                    elif field_id in field_mapping:
+                        # Fallback to cached mapping
+                        readable_name = field_mapping[field_id]
                     else:
-                        readable_name = f"field_{field_id}"
+                        # Last resort fallback
+                        readable_name = f"Custom Field {field_id}"
 
                     # Handle different value types
                     if values:
@@ -334,15 +337,25 @@ class DataEnricher:
         """Flatten field values handling different AmoCRM field types"""
         flattened = {}
 
+        # Create a sanitized column name from field_name
+        if field_name and field_name != f"Custom Field {field_id}":
+            # Sanitize field_name for use as column name
+            sanitized_name = field_name.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_').replace('\\', '_').replace('[', '').replace(']', '').replace('-', '_').lower()
+            primary_key = sanitized_name
+        else:
+            # Fallback to field_id based naming
+            primary_key = f"custom_field_{field_id}"
+
         if len(values) == 1:
             # Single value - handle different types
             value = values[0]
             flattened_value = self._extract_value_from_field(value)
 
-            # Store with both ID and name if available
-            flattened[f"custom_field_{field_id}"] = flattened_value
-            if field_name and field_name != f"field_{field_id}":
-                flattened[f"custom_field_{field_name.lower().replace(' ', '_')}"] = flattened_value
+            # Store with user-friendly name as primary
+            flattened[primary_key] = flattened_value
+            # Also store with field_id for compatibility (if different from primary)
+            if primary_key != f"custom_field_{field_id}":
+                flattened[f"custom_field_{field_id}"] = flattened_value
 
         else:
             # Multiple values - handle as multiselect/array
@@ -352,17 +365,18 @@ class DataEnricher:
                 all_values.append(flattened_value)
 
                 # Store individual values for searchability
-                flattened[f"custom_field_{field_id}_{i}"] = flattened_value
-                if field_name and field_name != f"field_{field_id}":
-                    flattened[f"custom_field_{field_name.lower().replace(' ', '_')}_{i}"] = flattened_value
+                flattened[f"{primary_key}_{i}"] = flattened_value
+                # Also store with field_id for compatibility (if different from primary)
+                if primary_key != f"custom_field_{field_id}":
+                    flattened[f"custom_field_{field_id}_{i}"] = flattened_value
 
             # Store as concatenated string for easy searching
-            flattened[f"custom_field_{field_id}_all"] = "; ".join(str(v) for v in all_values if v)
-            if field_name and field_name != f"field_{field_id}":
-                flattened[f"custom_field_{field_name.lower().replace(' ', '_')}_all"] = "; ".join(str(v) for v in all_values if v)
+            flattened[f"{primary_key}_all"] = "; ".join(str(v) for v in all_values if v)
+            if primary_key != f"custom_field_{field_id}":
+                flattened[f"custom_field_{field_id}_all"] = "; ".join(str(v) for v in all_values if v)
 
             # Store count
-            flattened[f"custom_field_{field_id}_count"] = len(all_values)
+            flattened[f"{primary_key}_count"] = len(all_values)
 
         return flattened
 
