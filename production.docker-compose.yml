@@ -10,8 +10,6 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-admin}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-4RFV5tgb6YHN}
-      - RABBITMQ_MANAGEMENT_STATS_INTERVAL=60000
-      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=0.6
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -46,13 +44,13 @@ services:
       - MONGO_INITDB_DATABASE=${MONGODB_DB:-amocrm_exporter}
       - MONGO_INITDB_DATABASE=amocrm_exporter
     volumes:
-      - mongo_data:/data/db
+      - mongo_data_1:/data/db
       - mongo_config:/data/configdb
-      - ./mongod.conf:/etc/mongod.conf:ro
+      # - ./mongod.conf:/etc/mongod.conf:ro
       - ./logs/mongodb:/var/log/mongodb
       # Для production с репликацией
       # - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    command: ["mongod", "--config", "/etc/mongod.conf"]
+    # command: ["mongod", "--config", "/etc/mongod.conf"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
@@ -209,7 +207,7 @@ services:
 volumes:
   rabbitmq_data:
     driver: local
-  mongo_data:
+  mongo_data_1:
     driver: local
   mongo_config:
     driver: local
