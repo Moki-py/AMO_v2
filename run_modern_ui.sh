@@ -10,4 +10,4 @@ pip install python-dotenv requests psutil > /dev/null 2>&1
 
 # Запускаем современный веб-интерфейс
 echo "Запуск современного веб-интерфейса AmoCRM экспортера..."
-python modern_ui_server.py
+python web_server.py

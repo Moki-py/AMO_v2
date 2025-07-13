@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amo_worker_min
-    command: python -m faststream run message_broker:app --workers 1
+    command: python -m faststream run src.amocrm_exporter.workers.message_broker:app --workers 1
     restart: unless-stopped
     depends_on:
       - rabbitmq

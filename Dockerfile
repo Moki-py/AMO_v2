@@ -19,4 +19,4 @@ EXPOSE 8000
 # ENV SOME_ENV_VAR=some_value
 
 # Run the application
-CMD ["python", "modern_ui_server.py"]
+CMD ["python", "web_server.py"]

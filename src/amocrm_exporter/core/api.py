@@ -7,9 +7,9 @@ import requests
 from typing import Any
 from datetime import datetime
 
-import config
-from auth import Auth
-from logger import log_event
+from . import config
+from .auth import Auth
+from .logger import log_event
 
 
 class AmoCRMAPI:
@@ -99,7 +99,7 @@ class AmoCRMAPI:
         Returns:
             tuple containing the list of entities and a boolean indicating if there are more pages
         """
-        params = {
+        params: dict[str, Any] = {
             "page": page,
             "limit": config.settings.page_size,
         }
@@ -118,7 +118,7 @@ class AmoCRMAPI:
                     datetime.fromisoformat(date_from).timestamp()
                 )
             except Exception:
-                from_ts = date_from
+                from_ts = int(date_from) if isinstance(date_from, str) and date_from.isdigit() else date_from
             params["updated_at[from]"] = from_ts
         if date_to:
             try:
@@ -126,7 +126,7 @@ class AmoCRMAPI:
                     datetime.fromisoformat(date_to).timestamp()
                 )
             except Exception:
-                to_ts = date_to
+                to_ts = int(date_to) if isinstance(date_to, str) and date_to.isdigit() else date_to
             params["updated_at[to]"] = to_ts
 
         try:
@@ -215,3 +215,199 @@ class AmoCRMAPI:
             if e.response.status_code == 404:
                 return None
             raise
+
+    def get_users_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of users, optionally filtered by updated_at"""
+        params: dict[str, Any] = {
+            "page": page,
+            "limit": config.settings.page_size,
+        }
+
+        # Add updated_at filter if provided
+        if date_from:
+            # Convert to unix timestamp if needed
+            try:
+                from_ts = int(
+                    datetime.fromisoformat(date_from).timestamp()
+                )
+            except Exception:
+                from_ts = date_from
+            params["updated_at[from]"] = from_ts
+        if date_to:
+            try:
+                to_ts = int(
+                    datetime.fromisoformat(date_to).timestamp()
+                )
+            except Exception:
+                to_ts = date_to
+            params["updated_at[to]"] = to_ts
+
+        try:
+            response = self._make_request("GET", "users", params=params)
+
+            # Extract users from response
+            if (
+                "_embedded" in response
+                and "users" in response["_embedded"]
+            ):
+                users = response["_embedded"]["users"]
+
+                # Log fetch success
+                log_event(
+                    "api",
+                    "info",
+                    f"Fetched {len(users)} users from page {page}",
+                )
+
+                # Determine if there are more pages
+                has_more = len(users) == config.settings.page_size
+
+                return users, has_more
+            else:
+                log_event(
+                    "api",
+                    "warning",
+                    f"No users found in response for page {page}",
+                )
+                return [], False
+
+        except Exception as e:
+            log_event(
+                "api",
+                "error",
+                f"Error fetching users page {page}: {e}",
+            )
+            raise
+
+    def get_all_users(self) -> list[dict[str, Any]]:
+        """Get all users with pagination handling"""
+        log_event("api", "info", "Starting to fetch all users")
+
+        all_users = []
+        page = 1
+        has_more = True
+
+        while has_more:
+            users, has_more = self.get_users_page(page)
+            all_users.extend(users)
+            page += 1
+
+        log_event("api", "info", f"Fetched {len(all_users)} total users")
+        return all_users
+
+    def get_pipelines_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        """Get a specific page of pipelines, optionally filtered by updated_at"""
+        params: dict[str, Any] = {
+            "page": page,
+            "limit": config.settings.page_size,
+        }
+
+        # Add updated_at filter if provided
+        if date_from:
+            # Convert to unix timestamp if needed
+            try:
+                from_ts = int(
+                    datetime.fromisoformat(date_from).timestamp()
+                )
+            except Exception:
+                from_ts = date_from
+            params["updated_at[from]"] = from_ts
+        if date_to:
+            try:
+                to_ts = int(
+                    datetime.fromisoformat(date_to).timestamp()
+                )
+            except Exception:
+                to_ts = date_to
+            params["updated_at[to]"] = to_ts
+
+        try:
+            response = self._make_request("GET", "leads/pipelines", params=params)
+
+            # Extract pipelines from response
+            if (
+                "_embedded" in response
+                and "pipelines" in response["_embedded"]
+            ):
+                pipelines = response["_embedded"]["pipelines"]
+
+                # Log fetch success
+                log_event(
+                    "api",
+                    "info",
+                    f"Fetched {len(pipelines)} pipelines from page {page}",
+                )
+
+                # Determine if there are more pages
+                has_more = len(pipelines) == config.settings.page_size
+
+                return pipelines, has_more
+            else:
+                log_event(
+                    "api",
+                    "warning",
+                    f"No pipelines found in response for page {page}",
+                )
+                return [], False
+
+        except Exception as e:
+            log_event(
+                "api",
+                "error",
+                f"Error fetching pipelines page {page}: {e}",
+            )
+            raise
+
+    def get_all_pipelines(self) -> list[dict[str, Any]]:
+        """Get all pipelines with detailed status information"""
+        log_event("api", "info", "Starting to fetch all pipelines")
+
+        all_pipelines = []
+        page = 1
+        has_more = True
+
+        while has_more:
+            pipelines, has_more = self.get_pipelines_page(page)
+            all_pipelines.extend(pipelines)
+            page += 1
+
+        log_event(
+            "api", "info", f"Fetched {len(all_pipelines)} pipelines total"
+        )
+        return all_pipelines
+
+    def get_custom_fields(self, entity_type: str) -> list[dict[str, Any]]:
+        """Get custom fields for a specific entity type"""
+        try:
+            endpoint = f"{entity_type}/custom_fields"
+            response = self._make_request("GET", endpoint)
+
+            if "_embedded" in response and "custom_fields" in response["_embedded"]:
+                custom_fields = response["_embedded"]["custom_fields"]
+                log_event("api", "info", f"Fetched {len(custom_fields)} custom fields for {entity_type}")
+                return custom_fields
+            else:
+                log_event("api", "warning", f"No custom fields found for {entity_type}")
+                return []
+
+        except Exception as e:
+            log_event("api", "error", f"Error fetching custom fields for {entity_type}: {e}")
+            return []
+
+    def get_all_custom_fields(self) -> dict[str, list[dict[str, Any]]]:
+        """Get custom fields for all supported entity types"""
+        entity_types = ["leads", "contacts", "companies"]
+        all_custom_fields = {}
+
+        for entity_type in entity_types:
+            try:
+                custom_fields = self.get_custom_fields(entity_type)
+                all_custom_fields[entity_type] = custom_fields
+            except Exception as e:
+                log_event("api", "error", f"Error fetching custom fields for {entity_type}: {e}")
+                all_custom_fields[entity_type] = []
+
+        total_fields = sum(len(fields) for fields in all_custom_fields.values())
+        log_event("api", "info", f"Fetched {total_fields} custom fields total across all entity types")
+
+        return all_custom_fields

@@ -7,8 +7,8 @@ import os
 import requests
 from datetime import datetime, timedelta
 
-import config
-from logger import log_event
+from . import config
+from .logger import log_event
 
 
 class Auth:

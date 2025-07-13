@@ -12,6 +12,8 @@ This module handles:
 import asyncio
 import json
 import re
+import concurrent.futures
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
@@ -20,9 +22,10 @@ from enum import Enum
 from pymongo import MongoClient
 from bson import ObjectId
 
-from logger import log_event
-from storage import Storage
-import config
+from ..core.logger import log_event
+from ..storage.storage import Storage
+from ..enrichment.data_enrichment import DataEnricher
+from ..core import config
 
 
 class EntityType(str, Enum):
@@ -31,6 +34,8 @@ class EntityType(str, Enum):
     CONTACTS = "contacts"
     COMPANIES = "companies"
     EVENTS = "events"
+    USERS = "users"
+    PIPELINES = "pipelines"
 
 
 @dataclass
@@ -78,15 +83,18 @@ class ExportSettingsManager:
         self.settings_collection = self.db.export_settings
         self.fields_cache: Dict[str, List[FieldInfo]] = {}
         self.preview_cache: Dict[str, List[str]] = {}
-        self.cache_ttl = timedelta(minutes=15)
+        self.cache_ttl = timedelta(minutes=config.settings.cache_ttl_minutes)
         self.last_cache_update: Dict[str, datetime] = {}
+        self.data_enricher = DataEnricher(storage)
 
         # Entity type to collection mapping
         self.entity_collections = {
             EntityType.DEALS: "leads",
             EntityType.CONTACTS: "contacts",
             EntityType.COMPANIES: "companies",
-            EntityType.EVENTS: "events"
+            EntityType.EVENTS: "events",
+            EntityType.USERS: "users",
+            EntityType.PIPELINES: "pipelines"
         }
 
         log_event("export_settings", "info", "Export Settings Manager initialized")
@@ -127,7 +135,8 @@ class ExportSettingsManager:
         collection = self.db[collection_name]
 
         # Get sample documents to analyze field structure
-        sample_docs = list(collection.find().limit(100))
+        sample_limit = min(100, config.settings.max_sample_size // 50)  # Adaptive sample size
+        sample_docs = list(collection.find().limit(sample_limit))
         if not sample_docs:
             log_event("export_settings", "warning", f"No data found for {entity_type}")
             return []
@@ -267,7 +276,19 @@ class ExportSettingsManager:
         return value
 
     async def _generate_preview_data(self, field_name: str, entity_type: EntityType, sample_docs: List[Dict]) -> List[str]:
-        """Generate preview data for a field"""
+        """Generate preview data for a field using optimized methods when possible"""
+        # Use optimized storage method if available
+        if hasattr(self.storage, 'get_field_sample_values'):
+            collection_name = self.entity_collections.get(entity_type)
+            if collection_name:
+                try:
+                    sample_values = self.storage.get_field_sample_values(collection_name, field_name, limit=3)
+                    if sample_values:
+                        return sample_values
+                except Exception as e:
+                    log_event("export_settings", "warning", f"Optimized preview failed for {field_name}, using fallback: {e}")
+
+        # Fallback to original method
         preview_values = []
 
         for doc in sample_docs[:5]:  # Get first 5 examples
@@ -474,3 +495,182 @@ class ExportSettingsManager:
         self.preview_cache.clear()
         self.last_cache_update.clear()
         log_event("export_settings", "info", "Cache cleared")
+
+    async def get_field_statistics(self, entity_type: EntityType, field_name: str, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Get statistics for a specific field with configurable limits"""
+        try:
+            collection_name = self.entity_collections.get(entity_type)
+            if not collection_name:
+                raise ValueError(f"Unknown entity type: {entity_type}")
+
+            # Use configured limit if not specified
+            if limit is None:
+                limit = config.settings.max_sampling_documents
+
+            return self.data_enricher.get_field_statistics(collection_name, field_name, limit)
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting field statistics for {entity_type}.{field_name}: {e}")
+            return {"total": 0, "filled": 0, "fill_percentage": 0, "unique_values": 0}
+
+    async def get_smart_sample(self, entity_type: EntityType, sample_size: int = 10) -> List[Dict[str, Any]]:
+        """Get a smart sample of entities with good field coverage with configurable limits"""
+        try:
+            collection_name = self.entity_collections.get(entity_type)
+            if not collection_name:
+                raise ValueError(f"Unknown entity type: {entity_type}")
+
+            # Ensure sample size doesn't exceed configured limits
+            max_sample_size = config.settings.max_sample_size
+            if sample_size > max_sample_size:
+                log_event("export_settings", "warning", f"Sample size {sample_size} exceeds limit {max_sample_size}, using limit")
+                sample_size = max_sample_size
+
+            return self.data_enricher.get_smart_sample(collection_name, sample_size)
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting smart sample for {entity_type}: {e}")
+            return []
+
+    async def get_enriched_sample(self, entity_type: EntityType, sample_size: int = 10,
+                                flatten_fields: bool = False, enrich_users: bool = True,
+                                enrich_pipelines: bool = True) -> List[Dict[str, Any]]:
+        """Get a smart sample of entities with enrichment options"""
+        try:
+            collection_name = self.entity_collections.get(entity_type)
+            if not collection_name:
+                raise ValueError(f"Unknown entity type: {entity_type}")
+
+            sample_entities = self.data_enricher.get_smart_sample(collection_name, sample_size)
+
+            if sample_entities:
+                enriched_entities = self.data_enricher.process_entities_batch(
+                    sample_entities,
+                    collection_name,
+                    flatten_fields=flatten_fields,
+                    enrich_users=enrich_users,
+                    enrich_pipelines=enrich_pipelines
+                )
+                return enriched_entities
+
+            return []
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting enriched sample for {entity_type}: {e}")
+            return []
+
+    async def get_all_field_statistics(self, entity_type: EntityType) -> Dict[str, Dict[str, Any]]:
+        """Get statistics for all fields in an entity type using optimized parallel aggregation"""
+        try:
+            # Use optimized storage method if available
+            if hasattr(self.storage, 'get_all_field_statistics_optimized'):
+                collection_name = self.entity_collections.get(entity_type)
+                if collection_name:
+                    statistics = self.storage.get_all_field_statistics_optimized(collection_name)
+                    if statistics:
+                        log_event("export_settings", "info", f"Got optimized field statistics for {entity_type}")
+                        return statistics
+
+            # Fallback to parallel method
+            return await self.get_all_field_statistics_parallel(entity_type)
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting all field statistics for {entity_type}: {e}")
+            return {}
+
+    async def get_all_field_statistics_parallel(self, entity_type: EntityType) -> Dict[str, Dict[str, Any]]:
+        """Get statistics for all fields using parallel processing"""
+        try:
+            fields = await self.get_available_fields(entity_type)
+            if not fields:
+                return {}
+
+            statistics = {}
+            batch_size = config.settings.sampling_batch_size
+
+            # Process fields in parallel batches
+            for i in range(0, len(fields), batch_size):
+                batch_fields = fields[i:i+batch_size]
+
+                # Create tasks for this batch
+                tasks = []
+                for field in batch_fields:
+                    task = asyncio.create_task(self.get_field_statistics(entity_type, field.field_id))
+                    tasks.append((field.field_id, task))
+
+                # Wait for all tasks in this batch to complete
+                for field_id, task in tasks:
+                    try:
+                        field_stats = await task
+                        statistics[field_id] = field_stats
+                    except Exception as e:
+                        log_event("export_settings", "error", f"Error getting statistics for field {field_id}: {e}")
+                        statistics[field_id] = {"total": 0, "filled": 0, "fill_percentage": 0, "unique_values": 0}
+
+                # Small delay between batches to avoid overwhelming the database
+                if i + batch_size < len(fields):
+                    await asyncio.sleep(0.1)
+
+            log_event("export_settings", "info", f"Completed parallel field statistics for {entity_type} ({len(statistics)} fields)")
+            return statistics
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error in parallel field statistics for {entity_type}: {e}")
+            return {}
+
+    async def get_top_filled_fields(self, entity_type: EntityType, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get fields with highest fill percentage"""
+        try:
+            all_stats = await self.get_all_field_statistics(entity_type)
+
+            # Sort by fill percentage
+            sorted_fields = sorted(
+                all_stats.items(),
+                key=lambda x: x[1].get('fill_percentage', 0),
+                reverse=True
+            )
+
+            return [
+                {
+                    'field_name': field_name,
+                    'fill_percentage': stats.get('fill_percentage', 0),
+                    'unique_values': stats.get('unique_values', 0),
+                    'total': stats.get('total', 0),
+                    'filled': stats.get('filled', 0)
+                }
+                for field_name, stats in sorted_fields[:limit]
+            ]
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting top filled fields for {entity_type}: {e}")
+            return []
+
+    async def create_smart_export_settings(self, entity_type: EntityType, name: str,
+                                         min_fill_percentage: float = 50.0,
+                                         max_fields: int = 50) -> Optional[ExportSettings]:
+        """Create export settings based on field statistics"""
+        try:
+            top_fields = await self.get_top_filled_fields(entity_type, max_fields)
+
+            # Filter by minimum fill percentage
+            selected_fields = [
+                field['field_name'] for field in top_fields
+                if field['fill_percentage'] >= min_fill_percentage
+            ]
+
+            if not selected_fields:
+                log_event("export_settings", "warning", f"No fields found with {min_fill_percentage}% fill rate for {entity_type}")
+                return None
+
+            # Create export settings
+            settings = ExportSettings(
+                entity_type=entity_type.value,
+                selected_fields=selected_fields,
+                field_order=selected_fields,
+                filters={},
+                name=name,
+                description=f"Auto-generated settings with {min_fill_percentage}% minimum fill rate",
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+
+            return settings
+        except Exception as e:
+            log_event("export_settings", "error", f"Error creating smart export settings for {entity_type}: {e}")
+            return None

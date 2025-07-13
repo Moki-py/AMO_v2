@@ -12,10 +12,10 @@ from faststream.rabbit import RabbitBroker
 from faststream.rabbit.schemas import ExchangeType, RabbitExchange, RabbitQueue
 from faststream import Context
 
-from api import AmoCRMAPI
-from storage import Storage
-from state_manager import StateManager
-from logger import log_event
+from ..core.api import AmoCRMAPI
+from ..storage.storage import Storage
+from ..storage.state_manager import StateManager
+from ..core.logger import log_event
 
 
 # Define message schemas for export tasks

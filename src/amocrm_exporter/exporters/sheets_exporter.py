@@ -14,9 +14,9 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from storage import Storage
-from logger import log_event
-import config
+from ..storage.storage import Storage
+from ..core.logger import log_event
+from ..core import config
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']

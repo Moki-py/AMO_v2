@@ -91,15 +91,17 @@
             box-shadow: var(--shadow);
             margin-bottom: 30px;
             overflow: hidden;
+            flex-wrap: wrap;
         }
 
         .tab {
             flex: 1;
-            padding: 16px 24px;
+            min-width: 150px;
+            padding: 12px 16px;
             background: transparent;
             border: none;
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 0.9rem;
             color: var(--gray);
             transition: all var(--animation-speed);
             position: relative;
@@ -254,6 +256,29 @@
             font-size: 0.7rem;
             padding: 2px 6px;
             border-radius: 12px;
+        }
+
+        .field-stats {
+            margin-top: 6px;
+        }
+
+        .fill-bar {
+            height: 4px;
+            background: var(--light-gray);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 4px;
+        }
+
+        .fill-progress {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .fill-text {
+            font-size: 0.7rem;
+            color: var(--gray);
+            text-align: center;
         }
 
         .drop-zone {
@@ -411,6 +436,16 @@
             color: var(--white);
         }
 
+        .notification.info {
+            background: var(--primary);
+            color: var(--white);
+        }
+
+        .notification.warning {
+            background: var(--warning);
+            color: var(--white);
+        }
+
         .hidden {
             display: none !important;
         }
@@ -456,6 +491,12 @@
             </button>
             <button class="tab" data-entity="events">
                 <i class="fas fa-calendar"></i>События
+            </button>
+            <button class="tab" data-entity="users">
+                <i class="fas fa-user-tie"></i>Пользователи
+            </button>
+            <button class="tab" data-entity="pipelines">
+                <i class="fas fa-sitemap"></i>Воронки
             </button>
         </div>
 
@@ -536,7 +577,7 @@
                 <label class="form-label">Описание (опционально)</label>
                 <textarea class="form-textarea" id="settings-description" placeholder="Краткое описание настройки экспорта"></textarea>
             </div>
-            <div style="display: flex; gap: 12px;">
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <button class="btn btn-primary" onclick="saveSettings()">
                     <i class="fas fa-save"></i>
                     Сохранить настройки
@@ -548,6 +589,10 @@
                 <button class="btn btn-secondary" onclick="exportData()">
                     <i class="fas fa-download"></i>
                     Экспортировать данные
+                </button>
+                <button class="btn btn-secondary" onclick="syncFlattenedData()">
+                    <i class="fas fa-sync"></i>
+                    Синхронизировать данные
                 </button>
             </div>
         </div>
@@ -670,9 +715,21 @@
             div.draggable = true;
             div.dataset.fieldId = field.field_id;
 
+            // Calculate fill percentage color
+            const fillPercentage = field.fill_percentage || 0;
+            const fillColor = fillPercentage > 70 ? 'var(--success)' :
+                            fillPercentage > 30 ? 'var(--warning)' : 'var(--danger)';
+
             div.innerHTML = `
                 <div class="field-name">${field.field_name}</div>
                 <div class="field-type">${field.field_type}</div>
+                ${field.fill_percentage !== undefined ?
+                    `<div class="field-stats">
+                        <div class="fill-bar">
+                            <div class="fill-progress" style="width: ${fillPercentage}%; background: ${fillColor}"></div>
+                        </div>
+                        <div class="fill-text">${fillPercentage}% заполнено</div>
+                    </div>` : ''}
                 ${field.preview_data && field.preview_data.length > 0 ?
                     `<div class="field-preview">Пример: ${field.preview_data[0]}</div>` : ''}
                 ${field.is_custom ? '<div class="field-custom">Custom</div>' : ''}
@@ -1022,6 +1079,103 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+
+        // Flattening data functionality
+        async function syncFlattenedData() {
+            try {
+                showNotification('Синхронизация данных...', 'info');
+
+                const response = await fetch(`/api/flattening/sync/${currentEntity}`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(`Успешно синхронизировано ${result.processed} записей за ${result.duration}с`, 'success');
+                    // Refresh fields to get updated statistics
+                    await refreshFields();
+                } else {
+                    showNotification(`Ошибка синхронизации: ${result.message}`, 'error');
+                }
+
+            } catch (error) {
+                console.error('Error syncing flattened data:', error);
+                showNotification('Ошибка синхронизации данных: ' + error.message, 'error');
+            }
+        }
+
+        async function getFlatteningStatus() {
+            try {
+                const response = await fetch('/api/flattening/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const status = await response.json();
+                return status;
+
+            } catch (error) {
+                console.error('Error getting flattening status:', error);
+                return null;
+            }
+        }
+
+        // Enhanced field loading with statistics
+        async function loadFieldsForEntity(entity, forceRefresh = false) {
+            try {
+                showLoadingInPanel('available-fields');
+
+                const cacheKey = `${entity}_fields`;
+                if (!forceRefresh && fieldsCache[cacheKey]) {
+                    availableFields = fieldsCache[cacheKey];
+                    updateAvailableFieldsDisplay();
+                    return;
+                }
+
+                const response = await fetch(`/api/export-settings/fields/${entity}?force_refresh=${forceRefresh}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                availableFields = data.fields;
+
+                // Try to get flattened statistics
+                try {
+                    const flattenedStats = await fetch(`/api/flattening/statistics/${entity}`);
+                    if (flattenedStats.ok) {
+                        const statsData = await flattenedStats.json();
+
+                        // Merge statistics with field data
+                        availableFields = availableFields.map(field => {
+                            const fieldStats = statsData.statistics[field.field_id];
+                            if (fieldStats) {
+                                field.fill_percentage = fieldStats.fill_percentage;
+                                field.unique_values = fieldStats.unique_values;
+                                field.total_records = fieldStats.total;
+                            }
+                            return field;
+                        });
+                    }
+                } catch (error) {
+                    console.warn('Could not load flattened statistics:', error);
+                }
+
+                fieldsCache[cacheKey] = availableFields;
+                updateAvailableFieldsDisplay();
+
+            } catch (error) {
+                console.error('Error loading fields:', error);
+                showNotification('Ошибка загрузки полей: ' + error.message, 'error');
+            } finally {
+                hideLoadingInPanel('available-fields');
+            }
         }
     </script>
 </body>

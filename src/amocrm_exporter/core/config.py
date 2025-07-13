@@ -53,6 +53,28 @@ class Settings(BaseSettings):
         7, alias="LOG_RETENTION_DAYS", description="Days to keep logs"
     )
 
+    # Sampling performance settings
+    max_sampling_documents: PositiveInt = Field(
+        10000,
+        alias="MAX_SAMPLING_DOCUMENTS",
+        description="Maximum documents to analyze for field statistics",
+    )
+    max_sample_size: PositiveInt = Field(
+        5000,
+        alias="MAX_SAMPLE_SIZE",
+        description="Maximum documents to analyze for smart sampling",
+    )
+    sampling_batch_size: PositiveInt = Field(
+        10,
+        alias="SAMPLING_BATCH_SIZE",
+        description="Number of fields to process in parallel for statistics",
+    )
+    cache_ttl_minutes: PositiveInt = Field(
+        15,
+        alias="CACHE_TTL_MINUTES",
+        description="Cache time-to-live in minutes for sampling results",
+    )
+
     # UI server settings
     ui_host: Optional[str] = Field(
         "127.0.0.1", alias="UI_HOST", description="UI server host"
@@ -71,7 +93,7 @@ class Settings(BaseSettings):
 
     # MongoDB settings
     mongodb_uri: str = Field(
-        "mongodb://mongodb:27017",
+        "mongodb://5.129.201.34:27017",
         alias="MONGODB_URI",
         description="MongoDB connection URI",
     )
@@ -79,6 +101,92 @@ class Settings(BaseSettings):
         "amocrm_exporter",
         alias="MONGODB_DB",
         description="MongoDB database name",
+    )
+
+    # MongoDB Performance settings
+    mongodb_pool_size: int = Field(
+        50,
+        alias="MONGODB_POOL_SIZE",
+        description="MongoDB connection pool size",
+    )
+    mongodb_max_idle_time: int = Field(
+        60000,
+        alias="MONGODB_MAX_IDLE_TIME",
+        description="MongoDB max idle time in ms",
+    )
+    mongodb_server_selection_timeout: int = Field(
+        30000,
+        alias="MONGODB_SERVER_SELECTION_TIMEOUT",
+        description="MongoDB server selection timeout in ms",
+    )
+    mongodb_socket_timeout: int = Field(
+        60000,
+        alias="MONGODB_SOCKET_TIMEOUT",
+        description="MongoDB socket timeout in ms",
+    )
+    mongodb_connect_timeout: int = Field(
+        20000,
+        alias="MONGODB_CONNECT_TIMEOUT",
+        description="MongoDB connect timeout in ms",
+    )
+    mongodb_write_concern: str = Field(
+        "majority",
+        alias="MONGODB_WRITE_CONCERN",
+        description="MongoDB write concern",
+    )
+    mongodb_read_preference: str = Field(
+        "primaryPreferred",
+        alias="MONGODB_READ_PREFERENCE",
+        description="MongoDB read preference",
+    )
+
+    # Redis settings
+    redis_host: str = Field(
+        "127.0.0.1",
+        alias="REDIS_HOST",
+        description="Redis host",
+    )
+    redis_port: int = Field(
+        6379,
+        alias="REDIS_PORT",
+        description="Redis port",
+    )
+    redis_db: int = Field(
+        0,
+        alias="REDIS_DB",
+        description="Redis database number",
+    )
+    redis_password: Optional[str] = Field(
+        None,
+        alias="REDIS_PASSWORD",
+        description="Redis password",
+    )
+    redis_ttl_seconds: int = Field(
+        3600,
+        alias="REDIS_TTL_SECONDS",
+        description="Redis cache TTL in seconds",
+    )
+
+    # RabbitMQ settings
+    rabbitmq_host: str = Field(
+        "5.129.201.34",
+        alias="RABBITMQ_HOST",
+        description="RabbitMQ host",
+    )
+    rabbitmq_port: int = Field(
+        5672,
+        alias="RABBITMQ_PORT",
+        description="RabbitMQ port",
+    )
+    rabbitmq_user: str = Field(
+        "guest",
+        alias="RABBITMQ_USER",
+        description="RabbitMQ username",
+    )
+    rabbitmq_password: str = Field(
+        "guest",
+        alias="RABBITMQ_PASSWORD",
+        description="RabbitMQ password",
     )
 
     # Google Sheets settings
@@ -150,7 +258,6 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore",
     )
 
 

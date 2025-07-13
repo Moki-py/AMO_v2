@@ -9,6 +9,7 @@ import os
 from enum import Enum
 from typing import Callable, Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 from pymongo import MongoClient
 
 from fastapi import FastAPI, HTTPException, Request, Header, Query
@@ -17,16 +18,17 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from logger import log_event
-from storage import Storage
-from parallel_exporter import ParallelExporter
-from excel_exporter import ExcelExporter
-from sheets_exporter import SheetsExporter
-from export_settings import ExportSettingsManager, EntityType as ExportEntityType, ExportSettings, FieldInfo
-import logger
-import config
-from state_manager import StateManager
-from message_broker import create_export_task, broker
+from ..core.logger import log_event
+from ..storage.storage import Storage
+from ..exporters.parallel_exporter import ParallelExporter
+from ..exporters.excel_exporter import ExcelExporter
+from ..exporters.sheets_exporter import SheetsExporter
+from .export_settings import ExportSettingsManager, EntityType as ExportEntityType, ExportSettings, FieldInfo
+from ..core import logger
+from ..core import config
+from ..storage.state_manager import StateManager
+from ..workers.message_broker import create_export_task, broker
+from ..processors.flattening_processor import get_flattening_processor
 
 
 class ActionType(str, Enum):
@@ -45,6 +47,8 @@ class EntityType(str, Enum):
     CONTACTS = "contacts"
     COMPANIES = "companies"
     EVENTS = "events"
+    USERS = "users"
+    PIPELINES = "pipelines"
 
     @staticmethod
     def normalize(entity_type: str) -> str:
@@ -67,6 +71,7 @@ exporter = ParallelExporter()
 excel_exporter = ExcelExporter(storage)
 sheets_exporter = SheetsExporter(storage)
 export_settings_manager = ExportSettingsManager(storage)
+flattening_processor = get_flattening_processor(storage)
 
 # Auto-continue exports that were still marked as running
 def continue_running_exports():
@@ -103,7 +108,7 @@ app.add_middleware(
 )
 
 # Setup templates
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 # Initialize worker pool
 worker_pool = None
@@ -114,10 +119,24 @@ async def startup_event():
     # No need to manually start the broker - it will be handled by FastStream
     log_event("api", "info", "Connected to RabbitMQ message broker")
 
+    # Start flattening processor
+    try:
+        flattening_processor.start()
+        log_event("api", "info", "Started flattening processor")
+    except Exception as e:
+        log_event("api", "error", f"Failed to start flattening processor: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
+    # Stop flattening processor
+    try:
+        flattening_processor.stop()
+        log_event("api", "info", "Stopped flattening processor")
+    except Exception as e:
+        log_event("api", "error", f"Error stopping flattening processor: {e}")
+
     # Close the broker connection
     await broker.close()
     log_event("api", "info", "Closed connection to message broker")
@@ -205,7 +224,9 @@ async def fetch_entity_handler(
         EntityType.DEALS,
         EntityType.CONTACTS,
         EntityType.COMPANIES,
-        EntityType.EVENTS
+        EntityType.EVENTS,
+        EntityType.USERS,
+        EntityType.PIPELINES
     ]:
         raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity}")
     try:
@@ -251,7 +272,7 @@ async def restart_export_handler(entity: EntityType) -> dict:
     """Forcibly restart an export regardless of its current state"""
     try:
         if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS, EntityType.USERS, EntityType.PIPELINES]:
                 exporter.restart_export(e.value)
             log_event("server", "info", "Restarting all exports")
             return {"success": True, "message": "All exports are being restarted"}
@@ -286,7 +307,7 @@ async def resume_export_handler(entity: EntityType) -> dict:
     """Resume an export from the last saved page without resetting state"""
     try:
         if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS]:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS, EntityType.USERS, EntityType.PIPELINES]:
                 exporter.resume_export(e.value)
             log_event("server", "info", "Resuming all exports")
             return {"success": True, "message": "All exports are being resumed"}
@@ -346,16 +367,20 @@ def get_stats() -> dict:
         contacts = len(storage.get_entities("contacts"))
         companies = len(storage.get_entities("companies"))
         events = len(storage.get_entities("events"))
+        users = len(storage.get_entities("users"))
+        pipelines = len(storage.get_entities("pipelines"))
 
         return {
             "deals": deals,
             "contacts": contacts,
             "companies": companies,
             "events": events,
+            "users": users,
+            "pipelines": pipelines,
         }
     except Exception as e:
         log_event("server", "error", f"Error getting stats: {e}")
-        return {"deals": 0, "contacts": 0, "companies": 0, "events": 0}
+        return {"deals": 0, "contacts": 0, "companies": 0, "events": 0, "users": 0, "pipelines": 0}
 
 
 async def fetch_all(date_from=None, date_to=None):
@@ -374,6 +399,8 @@ async def fetch_entity(entity: EntityType, date_from=None, date_to=None):
             EntityType.CONTACTS: exporter.export_contacts,
             EntityType.COMPANIES: exporter.export_companies,
             EntityType.EVENTS: exporter.export_events,
+            EntityType.USERS: exporter.export_users,
+            EntityType.PIPELINES: exporter.export_pipelines,
         }
         if entity in export_methods:
             export_methods[entity](date_from=date_from, date_to=date_to)
@@ -610,16 +637,19 @@ async def get_worker_status():
 async def get_available_fields(entity_type: str, force_refresh: bool = False):
     """Get available fields for an entity type"""
     try:
-        # Convert to ExportEntityType
-        if entity_type.lower() == "deals":
-            export_entity_type = ExportEntityType.DEALS
-        elif entity_type.lower() == "contacts":
-            export_entity_type = ExportEntityType.CONTACTS
-        elif entity_type.lower() == "companies":
-            export_entity_type = ExportEntityType.COMPANIES
-        elif entity_type.lower() == "events":
-            export_entity_type = ExportEntityType.EVENTS
-        else:
+        # Convert to ExportEntityType - support all entity types
+        entity_type_map = {
+            "deals": ExportEntityType.DEALS,
+            "leads": ExportEntityType.DEALS,  # Alias for deals
+            "contacts": ExportEntityType.CONTACTS,
+            "companies": ExportEntityType.COMPANIES,
+            "events": ExportEntityType.EVENTS,
+            "users": ExportEntityType.USERS,
+            "pipelines": ExportEntityType.PIPELINES
+        }
+
+        export_entity_type = entity_type_map.get(entity_type.lower())
+        if not export_entity_type:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
         fields = await export_settings_manager.get_available_fields(export_entity_type, force_refresh)
@@ -637,16 +667,19 @@ async def get_available_fields(entity_type: str, force_refresh: bool = False):
 async def get_field_preview(entity_type: str, field_name: str, limit: int = 10):
     """Get preview data for a specific field"""
     try:
-        # Convert to ExportEntityType
-        if entity_type.lower() == "deals":
-            export_entity_type = ExportEntityType.DEALS
-        elif entity_type.lower() == "contacts":
-            export_entity_type = ExportEntityType.CONTACTS
-        elif entity_type.lower() == "companies":
-            export_entity_type = ExportEntityType.COMPANIES
-        elif entity_type.lower() == "events":
-            export_entity_type = ExportEntityType.EVENTS
-        else:
+        # Convert to ExportEntityType - support all entity types
+        entity_type_map = {
+            "deals": ExportEntityType.DEALS,
+            "leads": ExportEntityType.DEALS,  # Alias for deals
+            "contacts": ExportEntityType.CONTACTS,
+            "companies": ExportEntityType.COMPANIES,
+            "events": ExportEntityType.EVENTS,
+            "users": ExportEntityType.USERS,
+            "pipelines": ExportEntityType.PIPELINES
+        }
+
+        export_entity_type = entity_type_map.get(entity_type.lower())
+        if not export_entity_type:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
         preview_data = await export_settings_manager.get_field_preview_data(
@@ -701,15 +734,18 @@ async def list_export_settings(entity_type: Optional[str] = None):
     try:
         export_entity_type = None
         if entity_type:
-            if entity_type.lower() == "deals":
-                export_entity_type = ExportEntityType.DEALS
-            elif entity_type.lower() == "contacts":
-                export_entity_type = ExportEntityType.CONTACTS
-            elif entity_type.lower() == "companies":
-                export_entity_type = ExportEntityType.COMPANIES
-            elif entity_type.lower() == "events":
-                export_entity_type = ExportEntityType.EVENTS
-            else:
+            entity_type_map = {
+                "deals": ExportEntityType.DEALS,
+                "leads": ExportEntityType.DEALS,  # Alias for deals
+                "contacts": ExportEntityType.CONTACTS,
+                "companies": ExportEntityType.COMPANIES,
+                "events": ExportEntityType.EVENTS,
+                "users": ExportEntityType.USERS,
+                "pipelines": ExportEntityType.PIPELINES
+            }
+
+            export_entity_type = entity_type_map.get(entity_type.lower())
+            if not export_entity_type:
                 raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
         settings_list = await export_settings_manager.list_export_settings(export_entity_type)
@@ -809,6 +845,340 @@ async def clear_export_settings_cache():
     except Exception as e:
         log_event("export_settings", "error", f"Error clearing cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Flattening processor endpoints
+@app.get("/api/flattening/status")
+async def get_flattening_status():
+    """Get current flattening processor status"""
+    try:
+        status = flattening_processor.get_flattening_status()
+        return status
+    except Exception as e:
+        log_event("flattening", "error", f"Error getting flattening status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/flattening/start")
+async def start_flattening():
+    """Start the flattening processor"""
+    try:
+        flattening_processor.start()
+        return {"success": True, "message": "Flattening processor started"}
+    except Exception as e:
+        log_event("flattening", "error", f"Error starting flattening processor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/flattening/stop")
+async def stop_flattening():
+    """Stop the flattening processor"""
+    try:
+        flattening_processor.stop()
+        return {"success": True, "message": "Flattening processor stopped"}
+    except Exception as e:
+        log_event("flattening", "error", f"Error stopping flattening processor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/flattening/sync/{entity_type}")
+async def force_sync_flattening(entity_type: str):
+    """Force immediate synchronization for a specific entity type"""
+    try:
+        # Normalize entity type and validate
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        if entity_type.lower() not in valid_entity_types:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        # Normalize deals -> leads for internal consistency
+        normalized_entity_type = "leads" if entity_type.lower() == "deals" else entity_type.lower()
+
+        result = flattening_processor.force_sync_entity_type(normalized_entity_type)
+        return result
+    except Exception as e:
+        log_event("flattening", "error", f"Error force syncing {entity_type}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/flattening/cleanup")
+async def cleanup_flattened_data():
+    """Clean up orphaned flattened data"""
+    try:
+        result = flattening_processor.cleanup_old_flattened_data()
+        return result
+    except Exception as e:
+        log_event("flattening", "error", f"Error cleaning up flattened data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/flattening/search/{entity_type}")
+async def search_flattened_data(entity_type: str, q: str = Query(...), limit: int = Query(20)):
+    """Search in flattened data"""
+    try:
+        # Normalize entity type and validate
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        if entity_type.lower() not in valid_entity_types:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        # Normalize deals -> leads for internal consistency
+        normalized_entity_type = "leads" if entity_type.lower() == "deals" else entity_type.lower()
+
+        results = storage.search_flattened_entities(normalized_entity_type, q, limit)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        log_event("flattening", "error", f"Error searching flattened data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/flattening/statistics/{entity_type}")
+async def get_flattened_statistics(entity_type: str):
+    """Get field statistics for flattened data"""
+    try:
+        # Normalize entity type and validate
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        if entity_type.lower() not in valid_entity_types:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        # Normalize deals -> leads for internal consistency
+        normalized_entity_type = "leads" if entity_type.lower() == "deals" else entity_type.lower()
+
+        stats = storage.get_flattened_field_statistics(normalized_entity_type)
+        return {"statistics": stats}
+    except Exception as e:
+        log_event("flattening", "error", f"Error getting flattened statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Performance monitoring endpoints
+
+@app.get("/api/performance/stats")
+async def get_performance_stats():
+    """Get MongoDB operation performance statistics"""
+    try:
+        stats = storage.performance_monitor.get_operation_stats()
+        return {"status": "success", "stats": stats}
+    except Exception as e:
+        log_event("api", "error", f"Error getting performance stats: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/performance/stats/{operation_name}")
+async def get_operation_performance_stats(operation_name: str):
+    """Get performance statistics for a specific operation"""
+    try:
+        stats = storage.performance_monitor.get_operation_stats(operation_name)
+        return {"status": "success", "operation": operation_name, "stats": stats}
+    except Exception as e:
+        log_event("api", "error", f"Error getting performance stats for {operation_name}: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/performance/slow-operations")
+async def get_slow_operations(limit: int = 10):
+    """Get the slowest recent operations"""
+    try:
+        slow_ops = storage.performance_monitor.get_slow_operations(limit)
+        return {"status": "success", "slow_operations": slow_ops}
+    except Exception as e:
+        log_event("api", "error", f"Error getting slow operations: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/performance/collection-stats/{entity_type}")
+async def get_collection_stats(entity_type: str):
+    """Get collection statistics for performance monitoring"""
+    try:
+        stats = storage.get_collection_stats(entity_type)
+        return {"status": "success", "stats": stats}
+    except Exception as e:
+        log_event("api", "error", f"Error getting collection stats: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/performance/analyze-query")
+async def analyze_query_performance(request: Request):
+    """Analyze query performance and get optimization suggestions"""
+    try:
+        data = await request.json()
+        entity_type = data.get("entity_type")
+        query = data.get("query", {})
+
+        if not entity_type:
+            return {"status": "error", "message": "entity_type is required"}
+
+        analysis = storage.optimize_query_performance(entity_type, query)
+        return {"status": "success", "analysis": analysis}
+    except Exception as e:
+        log_event("api", "error", f"Error analyzing query performance: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/performance/slow-queries")
+async def get_slow_queries_analysis(threshold_ms: int = 1000):
+    """Get analysis of slow queries with optimization suggestions"""
+    try:
+        analysis = storage.get_slow_queries_analysis(threshold_ms)
+        return {"status": "success", "slow_queries": analysis}
+    except Exception as e:
+        log_event("api", "error", f"Error getting slow queries analysis: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/entities/{entity_type}/paginated")
+async def get_entities_paginated(entity_type: str, page: int = 1, page_size: int = 100,
+                                sort_field: str = None, sort_order: int = 1):
+    """Get entities with pagination support"""
+    try:
+        # Validate entity type
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        if entity_type.lower() not in valid_entity_types:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        # Normalize deals -> leads
+        normalized_entity_type = "leads" if entity_type.lower() == "deals" else entity_type.lower()
+
+        # Validate page_size
+        if page_size > 1000:
+            page_size = 1000
+
+        result = storage.get_entities_paginated(
+            normalized_entity_type,
+            page=page,
+            page_size=page_size,
+            sort_field=sort_field,
+            sort_order=sort_order
+        )
+
+        return {"status": "success", **result}
+    except Exception as e:
+        log_event("api", "error", f"Error getting paginated entities: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/performance/reset-stats")
+async def reset_performance_stats():
+    """Reset performance statistics"""
+    try:
+        storage.performance_monitor.operation_stats.clear()
+        log_event("api", "info", "Performance statistics reset")
+        return {"status": "success", "message": "Performance statistics reset"}
+    except Exception as e:
+        log_event("api", "error", f"Error resetting performance stats: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/performance/threshold")
+async def get_slow_query_threshold():
+    """Get current slow query threshold"""
+    try:
+        threshold = storage.performance_monitor.slow_query_threshold
+        return {"status": "success", "threshold": threshold}
+    except Exception as e:
+        log_event("api", "error", f"Error getting threshold: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/performance/threshold")
+async def set_slow_query_threshold(request: Request):
+    """Set slow query threshold"""
+    try:
+        data = await request.json()
+        threshold = float(data.get("threshold", 1.0))
+
+        if threshold < 0:
+            return {"status": "error", "message": "Threshold must be positive"}
+
+        storage.performance_monitor.slow_query_threshold = threshold
+        log_event("api", "info", f"Slow query threshold set to {threshold}s")
+        return {"status": "success", "threshold": threshold}
+    except Exception as e:
+        log_event("api", "error", f"Error setting threshold: {e}")
+        return {"status": "error", "message": str(e)}
+
+# Benchmark testing endpoints
+
+@app.post("/api/benchmark/run")
+async def run_benchmark_tests(request: Request):
+    """Run benchmark tests for system performance evaluation"""
+    try:
+        data = await request.json() if hasattr(request, 'json') else {}
+        test_categories = data.get("categories", ["all"])
+
+        # Import and run benchmark tests
+        try:
+            # from benchmark_tests import BenchmarkSuite
+            # TODO: Implement benchmark tests module
+            # suite = BenchmarkSuite()
+
+            if "all" in test_categories:
+                results = suite.run_full_benchmark_suite()
+            else:
+                # Run specific categories
+                results = {
+                    'timestamp': datetime.now().isoformat(),
+                    'system_info': suite._get_system_info(),
+                    'benchmarks': {}
+                }
+
+                if "storage" in test_categories:
+                    results['benchmarks']['storage'] = suite.benchmark_storage_operations()
+                if "sampling" in test_categories:
+                    results['benchmarks']['sampling'] = suite.benchmark_sampling_operations()
+                if "enrichment" in test_categories:
+                    results['benchmarks']['enrichment'] = suite.benchmark_data_enrichment()
+                if "export_settings" in test_categories:
+                    results['benchmarks']['export_settings'] = suite.benchmark_export_settings()
+                if "flattened_data" in test_categories:
+                    results['benchmarks']['flattened_data'] = suite.benchmark_flattened_data_operations()
+
+            # Generate report
+            report = suite.generate_benchmark_report(results)
+
+            log_event("api", "info", "Benchmark tests completed successfully")
+            return {
+                "status": "success",
+                "results": results,
+                "report": report
+            }
+
+        except ImportError as e:
+            return {"status": "error", "message": f"Benchmark module not available: {e}"}
+
+    except Exception as e:
+        log_event("api", "error", f"Error running benchmark tests: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/benchmark/available-categories")
+async def get_benchmark_categories():
+    """Get available benchmark test categories"""
+    return {
+        "status": "success",
+        "categories": [
+            {
+                "id": "storage",
+                "name": "Storage Operations",
+                "description": "MongoDB CRUD operations performance"
+            },
+            {
+                "id": "sampling",
+                "name": "Data Sampling",
+                "description": "Field statistics and smart sampling performance"
+            },
+            {
+                "id": "enrichment",
+                "name": "Data Enrichment",
+                "description": "User and pipeline enrichment performance"
+            },
+            {
+                "id": "export_settings",
+                "name": "Export Settings",
+                "description": "Export configuration and field analysis performance"
+            },
+            {
+                "id": "flattened_data",
+                "name": "Flattened Data",
+                "description": "Custom fields flattening and search performance"
+            },
+            {
+                "id": "all",
+                "name": "Full Suite",
+                "description": "Complete benchmark test suite"
+            }
+        ]
+    }
+
+# Flattening processor management endpoints
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):

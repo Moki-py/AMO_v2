@@ -8,10 +8,10 @@ import queue
 from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
 
-from api import AmoCRMAPI
-from storage import Storage
-from state_manager import StateManager
-from logger import log_event
+from ..core.api import AmoCRMAPI
+from ..storage.storage import Storage
+from ..storage.state_manager import StateManager
+from ..core.logger import log_event
 
 
 class ExportTask:
