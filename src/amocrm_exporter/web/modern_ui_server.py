@@ -450,7 +450,7 @@ async def store_webhook_event(event_data: Dict[str, Any]) -> bool:
         return False
 
 @app.post("/webhook")
-async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)) -> JSONResponse | dict[str, Any]:
+async def webhook_handler(request: Request, x_signature: Optional[str] = Header(None)) -> JSONResponse:
     body = await request.body()
     if hasattr(config.settings, 'webhook_secret') and config.settings.webhook_secret:
         if not verify_webhook_signature(x_signature, body):
