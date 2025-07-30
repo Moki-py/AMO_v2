@@ -1,3 +1,8 @@
 maslo.oberonworks.ru {
     reverse_proxy api:8000
 }
+n8n.oberonworks.ru {
+    reverse_proxy 5.129.201.34:5678 {
+      flush_interval -1
+    }
+}
