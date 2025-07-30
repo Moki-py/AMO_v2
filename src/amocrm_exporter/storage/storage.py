@@ -149,9 +149,47 @@ class Storage:
 
     @monitor_performance("ensure_indexes")
     def _ensure_indexes(self):
-        """Ensure optimized indexes exist for all collections - temporarily disabled"""
-        print("⚠️ Создание индексов временно отключено для избежания ошибок совместимости MongoDB")
-        return
+        """Ensure optimized indexes exist for all collections"""
+        print("🔧 Создание индексов MongoDB...")
+
+        try:
+            # Define all entity types that need indexing
+            entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+
+            # Create basic indexes for all main collections
+            for entity_type in entity_types:
+                collection_name = self._get_collection_name(entity_type)
+                collection = self.db[collection_name]
+
+                try:
+                    # Primary index on id field (most important for performance)
+                    collection.create_index([("id", ASCENDING)], unique=True, sparse=True, background=True)
+                    print(f"✅ Создан основной индекс для {collection_name}")
+
+                    # Create sampling indexes for this entity type
+                    self._ensure_sampling_indexes(collection_name, entity_type)
+
+                except Exception as e:
+                    print(f"⚠️ Ошибка создания индексов для {collection_name}: {e}")
+
+            # Create indexes for logs collection
+            try:
+                logs_collection = self.db['logs']
+                logs_collection.create_index([("timestamp", DESCENDING)], background=True)
+                logs_collection.create_index([("component", ASCENDING)], background=True)
+                logs_collection.create_index([("level", ASCENDING)], background=True)
+                print("✅ Созданы индексы для коллекции logs")
+            except Exception as e:
+                print(f"⚠️ Ошибка создания индексов для logs: {e}")
+
+            # Create indexes for flattened data collections
+            self._ensure_flattened_indexes()
+
+            print("✅ Создание индексов завершено успешно")
+
+        except Exception as e:
+            log_event("storage", "error", f"Ошибка при создании индексов: {e}")
+            print(f"❌ Критическая ошибка создания индексов: {e}")
 
     def _ensure_flattened_indexes(self):
         """Create indexes for flattened data collections"""
