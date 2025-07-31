@@ -115,23 +115,26 @@ class GoogleSheetsConfigManager:
                 errors.append(f"Error reading credentials file: {str(e)}")
 
         # 2. Check spreadsheet ID configurations
-        spreadsheet_ids = self._get_spreadsheet_ids()
-        for entity_type, env_var in self.required_spreadsheet_configs.items():
-            spreadsheet_id = spreadsheet_ids.get(entity_type)
-            if not spreadsheet_id:
-                missing_configs.append(env_var)
-                errors.append(
-                    f"Missing Google Sheets ID for {entity_type}. "
-                    f"Please set {env_var} in your .env file."
-                )
-            else:
-                # Validate spreadsheet ID format
-                if not self._is_valid_spreadsheet_id(spreadsheet_id):
+        try:
+            spreadsheet_ids = self._get_spreadsheet_ids()
+            for entity_type, env_var in self.required_spreadsheet_configs.items():
+                spreadsheet_id = spreadsheet_ids.get(entity_type)
+                if not spreadsheet_id:
+                    missing_configs.append(env_var)
                     errors.append(
-                        f"Invalid spreadsheet ID format for {entity_type}: '{spreadsheet_id}'. "
-                        "Spreadsheet IDs should be 44 characters long and contain only alphanumeric characters, "
-                        "hyphens, and underscores."
+                        f"Missing Google Sheets ID for {entity_type}. "
+                        f"Please set {env_var} in your .env file."
                     )
+                else:
+                    # Validate spreadsheet ID format
+                    if not self._is_valid_spreadsheet_id(spreadsheet_id):
+                        errors.append(
+                            f"Invalid spreadsheet ID format for {entity_type}: '{spreadsheet_id}'. "
+                            "Spreadsheet IDs should be at least 5 characters long and contain only alphanumeric characters, "
+                            "hyphens, and underscores."
+                        )
+        except Exception as e:
+            errors.append(f"Error reading spreadsheet configuration: {str(e)}")
 
         # 3. Test OAuth token if credentials are available
         if not errors:  # Only test if basic config is valid
@@ -156,9 +159,22 @@ class GoogleSheetsConfigManager:
                         log_event("sheets_config", "info",
                                 f"Successfully accessed {entity_type} spreadsheet: {spreadsheet_info.title}")
                     except Exception as e:
-                        errors.append(
-                            f"Cannot access {entity_type} spreadsheet (ID: {spreadsheet_id}): {str(e)}"
-                        )
+                        error_msg = str(e)
+                        # Улучшаем сообщения об ошибках
+                        if "Access denied" in error_msg:
+                            errors.append(
+                                f"Cannot access {entity_type} spreadsheet (ID: {spreadsheet_id}): Access denied. "
+                                "Please ensure the spreadsheet is shared with your Google account and you have Editor permissions."
+                            )
+                        elif "not found" in error_msg.lower():
+                            errors.append(
+                                f"Cannot access {entity_type} spreadsheet (ID: {spreadsheet_id}): Spreadsheet not found. "
+                                "Please check the spreadsheet ID is correct and the spreadsheet exists."
+                            )
+                        else:
+                            errors.append(
+                                f"Cannot access {entity_type} spreadsheet (ID: {spreadsheet_id}): {error_msg}"
+                            )
 
         is_valid = len(errors) == 0
 
@@ -199,9 +215,18 @@ class GoogleSheetsConfigManager:
             service = build('sheets', 'v4', credentials=self.creds)
 
             # Get spreadsheet metadata
-            spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            spreadsheet_response = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+
+            # Validate response type
+            if not isinstance(spreadsheet_response, dict):
+                raise Exception(f"Invalid API response type: {type(spreadsheet_response)}, response: {spreadsheet_response}")
+
+            spreadsheet = spreadsheet_response
 
             # Extract basic information
+            if 'properties' not in spreadsheet:
+                raise Exception(f"Missing 'properties' in spreadsheet response: {list(spreadsheet.keys())}")
+
             title = spreadsheet.get('properties', {}).get('title', 'Unknown')
             url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
 
@@ -495,12 +520,22 @@ class GoogleSheetsConfigManager:
 
     def _get_spreadsheet_ids(self) -> Dict[str, Optional[str]]:
         """Get configured spreadsheet IDs from settings"""
-        return {
+        spreadsheet_ids = {
             'leads': settings.google_sheets_leads_id,
             'contacts': settings.google_sheets_contacts_id,
             'companies': settings.google_sheets_companies_id,
             'events': settings.google_sheets_events_id
         }
+
+        # Фильтруем пустые значения и приводим к строковому типу
+        filtered_ids = {}
+        for entity_type, spreadsheet_id in spreadsheet_ids.items():
+            if spreadsheet_id and isinstance(spreadsheet_id, str) and spreadsheet_id.strip():
+                filtered_ids[entity_type] = spreadsheet_id.strip()
+            else:
+                filtered_ids[entity_type] = None
+
+        return filtered_ids
 
     def _is_valid_spreadsheet_id(self, spreadsheet_id: str) -> bool:
         """
@@ -517,7 +552,8 @@ class GoogleSheetsConfigManager:
 
         # Google Sheets IDs are typically 44 characters long
         # and contain alphanumeric characters, hyphens, and underscores
-        if len(spreadsheet_id) != 44:
+        # ВРЕМЕННО: Допускаем ID любой длины для совместимости
+        if len(spreadsheet_id) < 5:  # Минимальная длина для разумности
             return False
 
         # Check for valid characters

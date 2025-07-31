@@ -14,8 +14,8 @@ try:
     from amocrm_exporter.web.modern_ui_server import app
 
     if __name__ == "__main__":
-        print("Запуск веб-интерфейса AmoCRM Data Exporter на http://127.0.0.1:8000")
-        uvicorn.run(app, host="127.0.0.1", port=8000)
+        print("Запуск веб-интерфейса AmoCRM Data Exporter на http://127.0.0.1:8001")
+        uvicorn.run(app, host="127.0.0.1", port=8001)
 except ImportError as e:
     print(f"Ошибка импорта: {e}")
     print("Убедитесь, что все зависимости установлены:")

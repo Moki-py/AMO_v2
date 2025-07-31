@@ -114,9 +114,9 @@ class TestGoogleSheetsConfigManager:
         # Mock invalid spreadsheet ID format
         mock_get_ids.return_value = {
             'leads': 'invalid_short_id',  # Too short
-            'contacts': 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890uv',  # Valid 44 chars
+            'contacts': 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx',  # Valid 44 chars
             'companies': 'invalid@id#with$special%chars!',  # Invalid characters
-            'events': 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890xy'  # Valid 44 chars
+            'events': 'abcd1234efgh5678ijkl9012mnop3456qrst7890xyza'  # Valid 44 chars
         }
 
         result = self.config_manager.validate_configuration()
@@ -130,7 +130,7 @@ class TestGoogleSheetsConfigManager:
     def test_is_valid_spreadsheet_id(self):
         """Test spreadsheet ID validation logic"""
         # Valid ID (44 characters, alphanumeric with hyphens and underscores)
-        valid_id = 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890uv'  # Exactly 44 chars
+        valid_id = 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx'  # Exactly 44 chars
         assert self.config_manager._is_valid_spreadsheet_id(valid_id)
 
         # Invalid IDs
@@ -141,7 +141,7 @@ class TestGoogleSheetsConfigManager:
         assert not self.config_manager._is_valid_spreadsheet_id('invalid@chars#here!' + 'a' * 27)  # Invalid chars
 
     @patch.object(GoogleSheetsConfigManager, '_get_credentials')
-    @patch('googleapiclient.discovery.build')
+    @patch('amocrm_exporter.core.google_sheets_config.build')
     def test_get_spreadsheet_info_success(self, mock_build, mock_get_creds):
         """Test successful spreadsheet info retrieval"""
         # Mock credentials with proper universe_domain
@@ -177,7 +177,7 @@ class TestGoogleSheetsConfigManager:
                 can_create_sheets=True
             )
 
-            spreadsheet_id = 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890uvw'
+            spreadsheet_id = 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx'
             result = self.config_manager.get_spreadsheet_info(spreadsheet_id)
 
             assert isinstance(result, SpreadsheetInfo)
@@ -190,7 +190,7 @@ class TestGoogleSheetsConfigManager:
             assert result.permissions['can_write'] is True
 
     @patch.object(GoogleSheetsConfigManager, '_get_credentials')
-    @patch('googleapiclient.discovery.build')
+    @patch('amocrm_exporter.core.google_sheets_config.build')
     def test_get_spreadsheet_info_not_found(self, mock_build, mock_get_creds):
         """Test spreadsheet info retrieval when spreadsheet not found"""
         # Mock credentials with proper universe_domain
@@ -212,7 +212,7 @@ class TestGoogleSheetsConfigManager:
 
         mock_service.spreadsheets().get().execute.side_effect = http_error
 
-        spreadsheet_id = 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890xyz'
+        spreadsheet_id = 'abcd1234efgh5678ijkl9012mnop3456qrst7890xyza'
         with pytest.raises(Exception) as exc_info:
             self.config_manager.get_spreadsheet_info(spreadsheet_id)
 
@@ -220,7 +220,7 @@ class TestGoogleSheetsConfigManager:
         assert spreadsheet_id in str(exc_info.value)
 
     @patch.object(GoogleSheetsConfigManager, '_get_credentials')
-    @patch('googleapiclient.discovery.build')
+    @patch('amocrm_exporter.core.google_sheets_config.build')
     def test_test_permissions_success(self, mock_build, mock_get_creds):
         """Test successful permission testing"""
         # Mock credentials with proper universe_domain
@@ -236,15 +236,18 @@ class TestGoogleSheetsConfigManager:
         # Mock successful API calls
         mock_service.spreadsheets().get().execute.return_value = {'properties': {'title': 'Test'}}
         mock_service.spreadsheets().values().get().execute.return_value = {'values': []}
-        mock_service.spreadsheets().batchUpdate().execute.return_value = {'replies': []}
 
-        # Mock sheet creation and deletion for testing
+        # Mock sheet creation and deletion for testing - the test_permissions method calls batchUpdate 3 times:
+        # 1. Empty batch update to test write permissions
+        # 2. Create sheet
+        # 3. Delete sheet
         mock_service.spreadsheets().batchUpdate().execute.side_effect = [
+            {'replies': []},  # Empty batch update for write test
             {'replies': [{'addSheet': {'properties': {'sheetId': 123}}}]},  # Create sheet
             {'replies': []}  # Delete sheet
         ]
 
-        spreadsheet_id = 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890uvw'
+        spreadsheet_id = 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx'
         result = self.config_manager.test_permissions(spreadsheet_id)
 
         assert isinstance(result, PermissionTestResult)
@@ -254,7 +257,7 @@ class TestGoogleSheetsConfigManager:
         assert result.error_message is None
 
     @patch.object(GoogleSheetsConfigManager, '_get_credentials')
-    @patch('googleapiclient.discovery.build')
+    @patch('amocrm_exporter.core.google_sheets_config.build')
     def test_test_permissions_read_only(self, mock_build, mock_get_creds):
         """Test permission testing with read-only access"""
         # Mock credentials with proper universe_domain
@@ -278,7 +281,7 @@ class TestGoogleSheetsConfigManager:
         http_error = HttpError(mock_resp, b'Forbidden')
         mock_service.spreadsheets().batchUpdate().execute.side_effect = http_error
 
-        spreadsheet_id = 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890xyz'
+        spreadsheet_id = 'abcd1234efgh5678ijkl9012mnop3456qrst7890xyza'
         result = self.config_manager.test_permissions(spreadsheet_id)
 
         assert isinstance(result, PermissionTestResult)
@@ -342,10 +345,10 @@ class TestGoogleSheetsConfigManager:
 
             # Mock spreadsheet IDs
             mock_get_ids.return_value = {
-                'leads': 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890uvw',  # Valid 44 chars
+                'leads': 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx',  # Valid 44 chars
                 'contacts': None,
                 'companies': 'invalid_id',  # Invalid (too short)
-                'events': 'abcd1234-efgh5678_ijkl9012mnop3456qrst7890xyz'  # Valid 44 chars
+                'events': 'abcd1234efgh5678ijkl9012mnop3456qrst7890uvwyz'  # Valid 44 chars
             }
 
             # Mock validation result

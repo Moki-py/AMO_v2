@@ -213,9 +213,7 @@ class TestExportPresetManager:
 
         # Configure find() method with a default empty cursor
         default_cursor = create_mock_cursor([])
-        find_result = MagicMock()
-        find_result.sort = MagicMock(return_value=default_cursor)
-        collection.find = MagicMock(return_value=find_result)
+        collection.find.return_value.sort.return_value = default_cursor
 
         # Store a reference to make it easy for tests to override
         collection._mock_cursor = default_cursor
@@ -229,18 +227,25 @@ class TestExportPresetManager:
         mock_insert_result.inserted_id = ObjectId()
         collection.insert_one = MagicMock(return_value=mock_insert_result)
 
-        # Configure delete_one() to return mock result
-        mock_delete_result = MagicMock()
-        mock_delete_result.deleted_count = 1
-        collection.delete_one = MagicMock(return_value=mock_delete_result)
+        # Configure delete_one() to return proper mock result
+        def mock_delete_one(*args, **kwargs):
+            result = MagicMock()
+            result.deleted_count = 1
+            return result
+        collection.delete_one = MagicMock(side_effect=mock_delete_one)
 
-        # Configure replace_one() to return mock result
-        mock_replace_result = MagicMock()
-        mock_replace_result.matched_count = 1
-        collection.replace_one = MagicMock(return_value=mock_replace_result)
+        # Configure replace_one() to return proper mock result
+        def mock_replace_one(*args, **kwargs):
+            result = MagicMock()
+            result.matched_count = 1
+            return result
+        collection.replace_one = MagicMock(side_effect=mock_replace_one)
 
         # Configure count_documents() for the duplicate name check
         collection.count_documents = MagicMock(return_value=0)
+
+        # Configure create_index to avoid errors
+        collection.create_index = MagicMock()
 
         mock_storage.db.export_presets = collection
         setattr(mock_storage.db, 'export_presets', collection)
@@ -269,14 +274,19 @@ class TestExportPresetManager:
         )
 
         # Mock MongoDB operations
-        mock_collection.find_one.return_value = None  # No duplicate
-        mock_collection.insert_one.return_value = Mock(inserted_id=ObjectId())
+        inserted_id = ObjectId()
 
+        # Replace the insert_one method on the manager's collection
+        mock_insert_result = MagicMock()
+        mock_insert_result.inserted_id = inserted_id
+        preset_manager.presets_collection.insert_one = MagicMock(return_value=mock_insert_result)
+
+        # Mock _is_duplicate_name to return False
         with patch.object(preset_manager, '_is_duplicate_name', return_value=False):
             preset_id = preset_manager.save_preset(preset)
 
-        assert preset_id is not None
-        mock_collection.insert_one.assert_called_once()
+        assert preset_id == str(inserted_id)
+        preset_manager.presets_collection.insert_one.assert_called_once()
 
     def test_save_preset_duplicate_name(self, preset_manager, mock_collection):
         """Test saving preset with duplicate name raises error"""
@@ -293,9 +303,9 @@ class TestExportPresetManager:
 
     def test_load_existing_preset(self, preset_manager, mock_collection):
         """Test loading an existing preset"""
-        preset_id = str(ObjectId())
+        preset_id = ObjectId()
         mock_doc = {
-            "_id": ObjectId(preset_id),
+            "_id": preset_id,
             "name": "Test Preset",
             "entity_type": "deals",
             "selected_fields": ["id", "name"],
@@ -306,13 +316,13 @@ class TestExportPresetManager:
             "updated_at": "2024-01-01T10:00:00"
         }
 
-        mock_collection.find_one.return_value = mock_doc
+        preset_manager.presets_collection.find_one.return_value = mock_doc
 
-        preset = preset_manager.load_preset(preset_id)
+        preset = preset_manager.load_preset(str(preset_id))
 
         assert preset is not None
         assert preset.name == "Test Preset"
-        assert preset.preset_id == preset_id
+        assert preset.preset_id == str(preset_id)
 
     def test_load_nonexistent_preset(self, preset_manager, mock_collection):
         """Test loading non-existent preset returns None"""
@@ -352,7 +362,7 @@ class TestExportPresetManager:
         # Create a proper iterable mock that can be used in for loops
         mock_cursor = MagicMock()
         mock_cursor.__iter__ = lambda self: iter(mock_docs)
-        mock_collection.find.return_value.sort.return_value = mock_cursor
+        preset_manager.presets_collection.find.return_value.sort.return_value = mock_cursor
 
         presets = preset_manager.list_presets()
 
@@ -364,25 +374,32 @@ class TestExportPresetManager:
         """Test listing presets filtered by entity type"""
         mock_cursor = MagicMock()
         mock_cursor.__iter__ = lambda self: iter([])
-        mock_collection.find.return_value.sort.return_value = mock_cursor
+        preset_manager.presets_collection.find.return_value.sort.return_value = mock_cursor
 
         preset_manager.list_presets("deals")
 
-        mock_collection.find.assert_called_with({"entity_type": "deals"})
+        preset_manager.presets_collection.find.assert_called_with({"entity_type": "deals"})
 
     def test_delete_existing_preset(self, preset_manager, mock_collection):
         """Test deleting an existing preset"""
         preset_id = str(ObjectId())
-        mock_collection.delete_one.return_value = Mock(deleted_count=1)
+
+        # Mock delete_one to return successful result
+        mock_delete_result = MagicMock()
+        mock_delete_result.deleted_count = 1
+        preset_manager.presets_collection.delete_one = MagicMock(return_value=mock_delete_result)
 
         result = preset_manager.delete_preset(preset_id)
 
         assert result is True
-        mock_collection.delete_one.assert_called_once()
+        preset_manager.presets_collection.delete_one.assert_called_once()
 
     def test_delete_nonexistent_preset(self, preset_manager, mock_collection):
         """Test deleting non-existent preset returns False"""
-        mock_collection.delete_one.return_value = Mock(deleted_count=0)
+        # Mock delete_one to return unsuccessful result
+        mock_delete_result = MagicMock()
+        mock_delete_result.deleted_count = 0
+        preset_manager.presets_collection.delete_one = MagicMock(return_value=mock_delete_result)
 
         result = preset_manager.delete_preset("nonexistent_id")
 
@@ -390,9 +407,9 @@ class TestExportPresetManager:
 
     def test_duplicate_preset(self, preset_manager, mock_collection):
         """Test duplicating a preset"""
-        original_id = str(ObjectId())
+        original_id = ObjectId()
         original_doc = {
-            "_id": ObjectId(original_id),
+            "_id": original_id,
             "name": "Original",
             "entity_type": "deals",
             "selected_fields": ["id", "name"],
@@ -404,26 +421,29 @@ class TestExportPresetManager:
         }
 
         # Mock loading original preset
-        mock_collection.find_one.return_value = original_doc
+        preset_manager.presets_collection.find_one.return_value = original_doc
 
         # Mock saving duplicate
         new_id = ObjectId()
-        mock_collection.insert_one.return_value = Mock(inserted_id=new_id)
+        mock_insert_result = MagicMock()
+        mock_insert_result.inserted_id = new_id
+        preset_manager.presets_collection.insert_one = MagicMock(return_value=mock_insert_result)
 
+        # Mock _is_duplicate_name to return False
         with patch.object(preset_manager, '_is_duplicate_name', return_value=False):
-            duplicate_id = preset_manager.duplicate_preset(original_id, "Duplicate")
+            duplicate_id = preset_manager.duplicate_preset(str(original_id), "Duplicate")
 
         assert duplicate_id == str(new_id)
 
     def test_is_duplicate_name(self, preset_manager, mock_collection):
         """Test duplicate name detection"""
         # Test with existing name
-        mock_collection.find_one.return_value = {"name": "Existing"}
+        preset_manager.presets_collection.find_one.return_value = {"name": "Existing"}
         result = preset_manager._is_duplicate_name("Existing", "deals")
         assert result is True
 
         # Test with non-existing name
-        mock_collection.find_one.return_value = None
+        preset_manager.presets_collection.find_one.return_value = None
         result = preset_manager._is_duplicate_name("New Name", "deals")
         assert result is False
 
@@ -451,9 +471,9 @@ class TestExportPresetManager:
 
     def test_get_preset_summary(self, preset_manager, mock_collection):
         """Test getting preset summary"""
-        preset_id = str(ObjectId())
+        preset_id = ObjectId()
         mock_doc = {
-            "_id": ObjectId(preset_id),
+            "_id": preset_id,
             "name": "Test Preset",
             "entity_type": "deals",
             "description": "Test description",
@@ -462,11 +482,11 @@ class TestExportPresetManager:
             "updated_at": "2024-01-01T11:00:00"
         }
 
-        mock_collection.find_one.return_value = mock_doc
+        preset_manager.presets_collection.find_one.return_value = mock_doc
 
-        summary = preset_manager.get_preset_summary(preset_id)
+        summary = preset_manager.get_preset_summary(str(preset_id))
 
         assert summary is not None
         assert summary["name"] == "Test Preset"
         assert summary["field_count"] == 3
-        assert summary["preset_id"] == preset_id
+        assert summary["preset_id"] == str(preset_id)

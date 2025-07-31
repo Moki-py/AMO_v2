@@ -1013,14 +1013,31 @@ class StateManager:
         try:
             # Create index on entity_type for fast lookups
             self.heartbeat_collection.create_index([("entity_type", 1)])
-            # Create index on last_heartbeat for timeout detection
-            self.heartbeat_collection.create_index([("last_heartbeat", 1)])
             # Create compound index for efficient queries
             self.heartbeat_collection.create_index([("entity_type", 1), ("last_heartbeat", -1)])
-            # Create TTL index to automatically cleanup old heartbeats (after 1 hour)
-            self.heartbeat_collection.create_index([("last_heartbeat", 1)], expireAfterSeconds=3600)
+
+            # Handle TTL index carefully - check if it exists first
+            try:
+                # Try to create TTL index to automatically cleanup old heartbeats (after 1 hour)
+                self.heartbeat_collection.create_index([("last_heartbeat", 1)], expireAfterSeconds=3600)
+            except pymongo.errors.OperationFailure as ttl_error:
+                if "IndexOptionsConflict" in str(ttl_error):
+                    # Index exists without TTL, drop and recreate
+                    log_event("state", "warning", "TTL index conflict detected, dropping and recreating last_heartbeat index")
+                    try:
+                        self.heartbeat_collection.drop_index("last_heartbeat_1")
+                        self.heartbeat_collection.create_index([("last_heartbeat", 1)], expireAfterSeconds=3600)
+                        log_event("state", "info", "Successfully recreated TTL index for heartbeat collection")
+                    except Exception as drop_error:
+                        log_event("state", "warning", f"Could not recreate TTL index: {drop_error}")
+                elif "already exists" in str(ttl_error):
+                    # Index already exists with TTL, this is fine
+                    log_event("state", "info", "TTL index already exists for heartbeat collection")
+                else:
+                    raise ttl_error
+
             log_event("state", "info", "Created indexes for heartbeat collection")
-        except PyMongoError as e:
+        except pymongo.errors.PyMongoError as e:
             log_event("state", "error", f"Error creating heartbeat indexes: {e}")
 
     def _normalize_entity_type(self, entity_type: str) -> str:

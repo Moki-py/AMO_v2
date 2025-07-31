@@ -76,12 +76,28 @@ storage = Storage()
 logger.init_storage(storage)
 exporter = ParallelExporter()
 excel_exporter = ExcelExporter(storage)
-sheets_exporter = SheetsExporter(storage)
-enhanced_sheets_exporter = EnhancedSheetsExporter(storage)
+
+# Initialize Google Sheets components with error handling to prevent server crash
+sheets_exporter = None
+enhanced_sheets_exporter = None
+google_sheets_config = None
+
+try:
+    sheets_exporter = SheetsExporter(storage)
+    enhanced_sheets_exporter = EnhancedSheetsExporter(storage)
+    google_sheets_config = GoogleSheetsConfigManager()
+    print("✅ Google Sheets экспортеры инициализированы успешно")
+except Exception as e:
+    print(f"⚠️ Ошибка инициализации Google Sheets экспортеров: {e}")
+    print("🔧 Сервер запустится без функций Google Sheets экспорта")
+    # Создать заглушки для API endpoints
+    sheets_exporter = None
+    enhanced_sheets_exporter = None
+    google_sheets_config = GoogleSheetsConfigManager()  # Config manager должен работать без валидации
+
 progress_tracker = ExportProgressTracker(storage)
 export_settings_manager = ExportSettingsManager(storage)
 flattening_processor = get_flattening_processor(storage)
-google_sheets_config = GoogleSheetsConfigManager()
 
 # Auto-continue exports that were still marked as running
 def continue_running_exports():
@@ -395,6 +411,13 @@ async def export_sheets_handler(
     date_to: str = Query(None)
 ) -> dict:
     try:
+        # Check if Google Sheets exporter is available
+        if sheets_exporter is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Google Sheets export is not available. Please check your Google Sheets configuration."
+            )
+
         # Check configuration before attempting export
         validation_result = google_sheets_config.validate_configuration()
         if not validation_result.is_valid:
@@ -424,6 +447,13 @@ async def export_sheets_enhanced_handler(
 ) -> dict:
     """Start an enhanced Google Sheets export with progress tracking"""
     try:
+        # Check if Google Sheets exporter is available
+        if enhanced_sheets_exporter is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Enhanced Google Sheets export is not available. Please check your Google Sheets configuration."
+            )
+
         # Check configuration before attempting export
         validation_result = google_sheets_config.validate_configuration()
         if not validation_result.is_valid:
@@ -642,6 +672,13 @@ async def export_sheets_with_presets_handler(request: Request) -> dict:
 
         if not preset_ids:
             raise HTTPException(status_code=400, detail="At least one preset must be specified")
+
+        # Check if Google Sheets exporter is available
+        if sheets_exporter is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Google Sheets export is not available. Please check your Google Sheets configuration."
+            )
 
         # Check configuration before attempting export
         validation_result = google_sheets_config.validate_configuration()

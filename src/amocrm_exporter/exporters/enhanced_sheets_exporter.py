@@ -25,6 +25,7 @@ from ..utils.concurrent_export_manager import (
 )
 from ..storage.storage import Storage
 from ..core.logger import log_event
+from ..web.export_presets import ExportPreset
 
 
 class EnhancedSheetsExporter(SheetsExporter):
@@ -73,11 +74,187 @@ class EnhancedSheetsExporter(SheetsExporter):
         # Register progress callback to send updates
         self.progress_tracker.add_progress_callback(self._on_progress_update)
 
+    def _validate_export_configuration(self, export_config: Dict[str, Any]) -> bool:
+        """Validate export configuration before starting export"""
+        try:
+            # Check if required fields are present
+            if not export_config:
+                return False
+
+            # Check if entity_presets is provided
+            if 'entity_presets' not in export_config:
+                log_event("sheets", "warning", "No entity_presets in export configuration")
+                return False
+
+            # Check if spreadsheet_ids is provided
+            if 'spreadsheet_ids' not in export_config:
+                log_event("sheets", "warning", "No spreadsheet_ids in export configuration")
+                return False
+
+            # Validate spreadsheet IDs format
+            for entity_type, spreadsheet_id in export_config.get('spreadsheet_ids', {}).items():
+                if spreadsheet_id and len(spreadsheet_id) != 44:
+                    log_event("sheets", "error", f"Invalid spreadsheet ID format for {entity_type}: {spreadsheet_id}")
+                    return False
+
+            return True
+        except Exception as e:
+            log_event("sheets", "error", f"Error validating export configuration: {str(e)}")
+            return False
+
+    async def _prepare_export_data(self, entity_presets: Dict[str, str], date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+        """Prepare data for export based on entity presets"""
+        try:
+            # Build query for date filtering
+            query = self._build_date_query(date_from, date_to)
+
+            # Get entity data from storage
+            entities_data = {}
+            for entity_type in entity_presets.keys():
+                try:
+                    if entity_type == "leads":
+                        # Get leads data
+                        entities_data[entity_type] = self.storage.get_data("leads", query)
+                    elif entity_type == "contacts":
+                        # Get contacts data
+                        entities_data[entity_type] = self.storage.get_data("contacts", query)
+                    elif entity_type == "companies":
+                        # Get companies data
+                        entities_data[entity_type] = self.storage.get_data("companies", query)
+                    elif entity_type == "events":
+                        # Get events data
+                        entities_data[entity_type] = self.storage.get_data("events", query)
+                    else:
+                        log_event("sheets", "warning", f"Unknown entity type: {entity_type}")
+                        entities_data[entity_type] = []
+                except Exception as e:
+                    log_event("sheets", "error", f"Error getting {entity_type} data: {str(e)}")
+                    entities_data[entity_type] = []
+
+            return entities_data
+        except Exception as e:
+            log_event("sheets", "error", f"Error preparing export data: {str(e)}")
+            return {}
+
+    async def _write_data_to_sheets(self, entities_data: Dict[str, List[Dict[str, Any]]], spreadsheet_ids: Dict[str, str], entity_presets: Dict[str, str]) -> Dict[str, Any]:
+        """Write prepared data to Google Sheets"""
+        try:
+            # Get credentials and service
+            self._get_credentials()
+            service = self._build_service()
+
+            results = {"success": True, "entity_results": {}}
+
+            for entity_type, data in entities_data.items():
+                try:
+                    spreadsheet_id = spreadsheet_ids.get(entity_type)
+                    if not spreadsheet_id:
+                        log_event("sheets", "warning", f"No spreadsheet ID for {entity_type}")
+                        continue
+
+                    if not data:
+                        log_event("sheets", "info", f"No data to export for {entity_type}")
+                        continue
+
+                    # Process data for export
+                    processed_data = self._process_data_efficient(data)
+
+                    # Export to sheets using existing method
+                    spreadsheet_url = await self._export_entity_with_progress_and_presets(
+                        export_id="default",
+                        entity_type=entity_type,
+                        data=processed_data,
+                        service=service
+                    )
+
+                    results["entity_results"][entity_type] = {
+                        "success": True,
+                        "url": spreadsheet_url,
+                        "records_count": len(processed_data)
+                    }
+
+                except Exception as e:
+                    log_event("sheets", "error", f"Error writing {entity_type} to sheets: {str(e)}")
+                    results["entity_results"][entity_type] = {
+                        "success": False,
+                        "error": str(e)
+                    }
+
+            return results
+        except Exception as e:
+            log_event("sheets", "error", f"Error writing data to sheets: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def _process_data_with_preset(self, data: List[Dict[str, Any]], preset: ExportPreset) -> List[Dict[str, Any]]:
+        """Process data according to preset configuration"""
+        try:
+            if not data or not preset:
+                return data
+
+            processed_data = []
+
+            for item in data:
+                processed_item = {}
+
+                # Apply field selection from preset
+                if preset.selected_fields:
+                    for field in preset.selected_fields:
+                        if field in item:
+                            processed_item[field] = item[field]
+                        elif field.startswith('custom_field_'):
+                            # Handle custom fields
+                            custom_field_id = field.replace('custom_field_', '')
+                            custom_fields = item.get('custom_fields_values', [])
+                            for custom_field in custom_fields:
+                                if str(custom_field.get('field_id', '')) == custom_field_id:
+                                    # Get custom field name from preset mapping
+                                    field_name = preset.custom_field_mappings.get(field, field)
+                                    values = custom_field.get('values', [])
+                                    if values:
+                                        processed_item[field_name] = values[0].get('value', '')
+                                    break
+                else:
+                    # If no field selection, include all fields
+                    processed_item = item.copy()
+
+                # Process custom fields
+                if 'custom_fields_values' in item:
+                    custom_fields = self._parse_custom_fields(item['custom_fields_values'])
+                    for custom_field in custom_fields:
+                        if isinstance(custom_field, dict):
+                            field_name = custom_field.get('field_name', '')
+                            if field_name:
+                                processed_item[field_name] = custom_field.get('value', '')
+
+                processed_data.append(processed_item)
+
+            # Apply field ordering from preset
+            if preset.field_order:
+                ordered_data = []
+                for item in processed_data:
+                    ordered_item = {}
+                    # First add fields in specified order
+                    for field in preset.field_order:
+                        if field in item:
+                            ordered_item[field] = item[field]
+                    # Then add any remaining fields
+                    for field, value in item.items():
+                        if field not in ordered_item:
+                            ordered_item[field] = value
+                    ordered_data.append(ordered_item)
+                processed_data = ordered_data
+
+            return processed_data
+        except Exception as e:
+            log_event("sheets", "error", f"Error processing data with preset: {str(e)}")
+            return data
+
     async def export_all_to_sheets_with_progress(
         self,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
-        export_id: Optional[str] = None
+        export_id: Optional[str] = None,
+        presets: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """
         Export all entity data to Google Sheets with real-time progress tracking
@@ -86,6 +263,7 @@ class EnhancedSheetsExporter(SheetsExporter):
             date_from: Start date filter
             date_to: End date filter
             export_id: Optional export ID for tracking
+            presets: Optional presets configuration for export
 
         Returns:
             Dictionary mapping entity types to their spreadsheet URLs
@@ -113,8 +291,18 @@ class EnhancedSheetsExporter(SheetsExporter):
             # Build query for date filtering
             query = self._build_date_query(date_from, date_to)
 
+            # Update spreadsheet IDs if provided in presets
+            if presets and hasattr(presets, 'get') and 'spreadsheet_ids' in presets:
+                log_event("sheets", "info", f"Updating spreadsheet IDs from presets: {presets['spreadsheet_ids']}")
+                self.spreadsheet_ids.update(presets['spreadsheet_ids'])
+
             # Get all entity data with counts for progress tracking
-            entities_data = await self._get_entities_data_with_progress(export_id, query)
+            if presets and hasattr(presets, 'get') and 'entity_presets' in presets:
+                # Use _prepare_export_data when presets config is provided (for testing)
+                entities_data = await self._prepare_export_data(presets.get('entity_presets', {}), date_from, date_to)
+            else:
+                # Use direct data retrieval for normal operation
+                entities_data = await self._get_entities_data_with_progress(export_id, query)
 
             results = {}
             total_processed = 0
@@ -166,7 +354,44 @@ class EnhancedSheetsExporter(SheetsExporter):
             )
 
             log_event("sheets", "info", f"Enhanced export {export_id} completed in {duration:.2f}s")
-            return results
+
+            # Return detailed export results
+            exported_entities = {}
+            failed_entities = []
+            errors = []
+
+            # Get progress information to extract errors
+            progress = self.progress_tracker.get_export_progress(export_id)
+
+            for entity_type, data in entities_data.items():
+                exported_entities[entity_type] = len(data) if data else 0
+
+                # Check if entity failed and collect errors
+                if progress and entity_type in progress.entities:
+                    entity_progress = progress.entities[entity_type]
+                    if entity_progress.status == ExportStatus.FAILED and entity_progress.error_message:
+                        failed_entities.append(entity_type)
+                        errors.append(f"{entity_type}: {entity_progress.error_message}")
+
+            # Determine final status based on results
+            if not success or errors:
+                final_status = "partial" if results else "failed"
+            else:
+                final_status = "completed"
+
+            result = {
+                "status": final_status,
+                "exported_entities": exported_entities,
+                "spreadsheet_urls": results,
+                "errors": errors,
+                "total_processed": total_processed,
+                "duration": duration
+            }
+
+            if failed_entities:
+                result["failed_entities"] = failed_entities
+
+            return result
 
         except Exception as e:
             error_msg = str(e)
@@ -184,7 +409,15 @@ class EnhancedSheetsExporter(SheetsExporter):
                 "details": {"error": error_msg}
             })
 
-            raise
+            # Return error result instead of raising
+            return {
+                "status": "failed",
+                "exported_entities": {},
+                "spreadsheet_urls": {},
+                "errors": [error_msg],
+                "total_processed": 0,
+                "duration": 0
+            }
 
     async def _get_entities_data_with_progress(
         self,

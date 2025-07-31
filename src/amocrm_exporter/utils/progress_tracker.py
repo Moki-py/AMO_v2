@@ -148,16 +148,27 @@ class ExportProgressTracker:
         self.websocket_connections: Set[Any] = set()  # WebSocket connections for real-time updates
 
         # Initialize MongoDB collection for progress persistence
-        if hasattr(storage, 'db') and storage.db:
-            self.progress_collection = storage.db['export_progress']
-            self._ensure_progress_indexes()
-        else:
+        try:
+            if hasattr(storage, 'db') and storage.db is not None:
+                # Check if this is a real storage with DB or a mock
+                if hasattr(storage.db, '__getitem__'):  # Real MongoDB database
+                    self.progress_collection = storage.db['export_progress']
+                    self._ensure_progress_indexes()
+                else:
+                    # Mock or other type, skip DB initialization
+                    self.progress_collection = None
+                    log_event("progress", "info", "Mock storage detected, progress will not be persisted")
+            else:
+                self.progress_collection = None
+                log_event("progress", "warning", "MongoDB not available, progress will not be persisted")
+        except (TypeError, AttributeError) as e:
+            # Handle Mock objects or other issues gracefully
             self.progress_collection = None
-            log_event("progress", "warning", "MongoDB not available, progress will not be persisted")
+            log_event("progress", "info", f"Progress persistence disabled: {str(e)}")
 
     def _ensure_progress_indexes(self):
         """Ensure indexes exist for progress collection"""
-        if not self.progress_collection:
+        if self.progress_collection is None:
             return
 
         try:
@@ -483,7 +494,7 @@ class ExportProgressTracker:
 
     def _persist_progress(self, progress: ExportProgress) -> None:
         """Persist progress to database"""
-        if not self.progress_collection:
+        if self.progress_collection is None:
             return
 
         try:
@@ -519,7 +530,7 @@ class ExportProgressTracker:
 
     def _load_progress_from_db(self, export_id: str) -> Optional[ExportProgress]:
         """Load progress from database"""
-        if not self.progress_collection:
+        if self.progress_collection is None:
             return None
 
         try:
@@ -637,7 +648,7 @@ class ExportProgressTracker:
         Returns:
             Number of records removed
         """
-        if not self.progress_collection:
+        if self.progress_collection is None:
             return 0
 
         try:

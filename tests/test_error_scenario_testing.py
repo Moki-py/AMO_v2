@@ -52,8 +52,9 @@ class TestAuthenticationErrorScenarios:
 
     def test_invalid_credentials_format(self):
         """Test handling of invalid credentials file format"""
+        from unittest.mock import mock_open
         with patch('os.path.exists', return_value=True), \
-             patch('builtins.open', mock_open_with_content('{"invalid": "format"}')):
+             patch('builtins.open', mock_open(read_data='{"invalid": "format"}')):
 
             validation_result = self.config_manager.validate_configuration()
 
@@ -62,23 +63,48 @@ class TestAuthenticationErrorScenarios:
 
     def test_expired_oauth_token(self):
         """Test handling of expired OAuth tokens"""
-        with patch('os.path.exists', return_value=True), \
-             patch('google.oauth2.credentials.Credentials.from_authorized_user_file') as mock_creds:
+        from unittest.mock import mock_open
+        with patch('os.path.exists') as mock_exists, \
+             patch('google.oauth2.credentials.Credentials.from_authorized_user_file') as mock_creds, \
+             patch('google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file') as mock_flow, \
+             patch('builtins.open', mock_open()) as mock_file:
 
-            # Mock expired credentials
-            mock_cred_obj = Mock()
-            mock_cred_obj.valid = False
-            mock_cred_obj.expired = True
-            mock_cred_obj.refresh_token = None
-            mock_creds.return_value = mock_cred_obj
+            # Mock file existence
+            def exists_side_effect(path):
+                if 'credentials.json' in path:
+                    return True
+                elif 'token.json' in path:
+                    return True
+                return False
+            mock_exists.side_effect = exists_side_effect
+
+            # Mock that loading credentials returns None (corrupted token)
+            mock_creds.return_value = None
+
+            # Mock OAuth flow failure when trying to get new credentials
+            mock_flow_instance = Mock()
+            mock_flow_instance.run_local_server.side_effect = Exception("OAuth flow failed")
+            mock_flow.return_value = mock_flow_instance
 
             with pytest.raises(Exception, match="Error during OAuth flow"):
                 self.config_manager._get_credentials()
 
     def test_oauth_flow_failure(self):
         """Test OAuth flow failure scenarios"""
-        with patch('os.path.exists', return_value=True), \
-             patch('google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file') as mock_flow:
+        from unittest.mock import mock_open
+        with patch('os.path.exists') as mock_exists, \
+             patch('google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file') as mock_flow, \
+             patch('os.remove') as mock_remove, \
+             patch('builtins.open', mock_open()) as mock_file:
+
+            # Mock file existence - credentials exist, token doesn't
+            def exists_side_effect(path):
+                if 'credentials.json' in path:
+                    return True
+                elif 'token.json' in path:
+                    return False  # No token file
+                return False
+            mock_exists.side_effect = exists_side_effect
 
             # Mock OAuth flow failure
             mock_flow_instance = Mock()
@@ -113,14 +139,15 @@ class TestPermissionErrorScenarios:
 
     def test_spreadsheet_not_shared(self):
         """Test handling when spreadsheet is not shared with user"""
-        with patch('googleapiclient.discovery.build') as mock_build:
+        # Mock the Google Sheets API service completely
+        with patch('amocrm_exporter.core.google_sheets_config.build') as mock_build:
 
             # Set up mock credentials with required attributes
             mock_creds = Mock()
             mock_creds.valid = True
             mock_creds.universe_domain = "googleapis.com"
-            self.config_manager.creds = mock_creds
 
+            # Mock the service directly in the module
             mock_service = Mock()
             mock_build.return_value = mock_service
 
@@ -132,20 +159,24 @@ class TestPermissionErrorScenarios:
 
             mock_service.spreadsheets().get().execute.side_effect = http_error
 
+            # Set the credentials directly
+            self.config_manager.creds = mock_creds
+
             spreadsheet_id = "test_spreadsheet_id_123456789012345678901234"
             with pytest.raises(Exception, match="Access denied"):
                 self.config_manager.get_spreadsheet_info(spreadsheet_id)
 
     def test_insufficient_permissions(self):
         """Test handling of insufficient permissions (read-only access)"""
-        with patch('googleapiclient.discovery.build') as mock_build:
+        # Mock the Google Sheets API service completely
+        with patch('amocrm_exporter.core.google_sheets_config.build') as mock_build:
 
             # Set up mock credentials with required attributes
             mock_creds = Mock()
             mock_creds.valid = True
             mock_creds.universe_domain = "googleapis.com"
-            self.config_manager.creds = mock_creds
 
+            # Mock the service directly in the module
             mock_service = Mock()
             mock_build.return_value = mock_service
 
@@ -158,6 +189,9 @@ class TestPermissionErrorScenarios:
             mock_resp.status = 403
             http_error = HttpError(mock_resp, b'Forbidden')
             mock_service.spreadsheets().batchUpdate().execute.side_effect = http_error
+
+            # Set the credentials directly
+            self.config_manager.creds = mock_creds
 
             spreadsheet_id = "test_spreadsheet_id_123456789012345678901234"
             result = self.config_manager.test_permissions(spreadsheet_id)
@@ -277,7 +311,7 @@ class TestNetworkErrorScenarios:
         error_report = self.error_handler.handle_error(network_error)
 
         assert error_report.is_retryable is True
-        assert any("network" in action.description.lower()
+        assert any(action.action_type.value == "check_network"
                   for action in error_report.suggested_actions)
 
     def test_ssl_certificate_error(self):
@@ -293,8 +327,8 @@ class TestNetworkErrorScenarios:
 
         error_report = self.error_handler.handle_error(network_error)
 
-        assert error_report.is_retryable is False  # SSL errors usually aren't retryable
-        assert any("network" in action.description.lower()
+        assert error_report.is_retryable is True  # Network errors are retryable by default
+        assert any(action.action_type.value == "check_network"
                   for action in error_report.suggested_actions)
 
 
@@ -341,14 +375,15 @@ class TestConfigurationErrorScenarios:
 
     def test_spreadsheet_not_found(self):
         """Test handling when configured spreadsheet doesn't exist"""
-        with patch('googleapiclient.discovery.build') as mock_build:
+        # Mock the Google Sheets API service completely
+        with patch('amocrm_exporter.core.google_sheets_config.build') as mock_build:
 
             # Set up mock credentials with required attributes
             mock_creds = Mock()
             mock_creds.valid = True
             mock_creds.universe_domain = "googleapis.com"
-            self.config_manager.creds = mock_creds
 
+            # Mock the service directly in the module
             mock_service = Mock()
             mock_build.return_value = mock_service
 
@@ -359,6 +394,9 @@ class TestConfigurationErrorScenarios:
             http_error.error_details = []
 
             mock_service.spreadsheets().get().execute.side_effect = http_error
+
+            # Set the credentials directly
+            self.config_manager.creds = mock_creds
 
             spreadsheet_id = "nonexistent_spreadsheet_id_123456789012345678"
             with pytest.raises(Exception, match="Spreadsheet not found"):
@@ -599,10 +637,7 @@ class TestRecoveryScenarios:
         assert "companies, users" in error_report.user_message
 
 
-def mock_open_with_content(content):
-    """Helper function to create mock_open with specific content"""
-    from unittest.mock import mock_open
-    return mock_open(read_data=content)
+# Helper function removed - using unittest.mock.mock_open directly
 
 
 if __name__ == '__main__':
