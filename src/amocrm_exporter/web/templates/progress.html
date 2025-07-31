@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Export Progress - AmoCRM Data Exporter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .export-controls {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .active-exports {
+            margin-bottom: 30px;
+        }
+
+        .export-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .export-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .export-id {
+            font-family: 'Courier New', monospace;
+            background: #f1f5f9;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #475569;
+        }
+
+        .export-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-starting { background: #dbeafe; color: #1e40af; }
+        .status-in_progress { background: #dbeafe; color: #1e40af; }
+        .status-completed { background: #d1fae5; color: #065f46; }
+        .status-failed { background: #fee2e2; color: #991b1b; }
+        .status-cancelled { background: #f3f4f6; color: #374151; }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .entities-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .entity-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .entity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .entity-name {
+            font-weight: 600;
+            color: #374151;
+            text-transform: capitalize;
+        }
+
+        .entity-progress {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .spreadsheet-links {
+            margin-top: 15px;
+        }
+
+        .spreadsheet-link {
+            display: inline-block;
+            background: #3b82f6;
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            margin-right: 10px;
+            margin-bottom: 5px;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .spreadsheet-link:hover {
+            background: #2563eb;
+        }
+
+        .notifications {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .notification {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            border-left: 4px solid;
+        }
+
+        .notification-info {
+            background: #eff6ff;
+            border-left-color: #3b82f6;
+            color: #1e40af;
+        }
+
+        .notification-success {
+            background: #f0fdf4;
+            border-left-color: #10b981;
+            color: #065f46;
+        }
+
+        .notification-warning {
+            background: #fffbeb;
+            border-left-color: #f59e0b;
+            color: #92400e;
+        }
+
+        .notification-error {
+            background: #fef2f2;
+            border-left-color: #ef4444;
+            color: #991b1b;
+        }
+
+        .notification-timestamp {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 1000;
+        }
+
+        .connected {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .disconnected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .entities-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .export-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Export Progress</h1>
+            <p>Real-time tracking of Google Sheets exports</p>
+        </div>
+
+        <div class="content">
+            <!-- Export Controls -->
+            <div class="export-controls">
+                <h3 style="margin-bottom: 15px;">Start New Export</h3>
+                <div style="display: flex; gap: 15px; align-items: end; flex-wrap: wrap;">
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label for="dateFrom">Date From (optional)</label>
+                        <input type="date" id="dateFrom" name="dateFrom">
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label for="dateTo">Date To (optional)</label>
+                        <input type="date" id="dateTo" name="dateTo">
+                    </div>
+                    <button class="btn" id="startExportBtn" onclick="startExport()">
+                        Start Enhanced Export
+                    </button>
+                </div>
+            </div>
+
+            <!-- Active Exports -->
+            <div class="active-exports">
+                <h3 style="margin-bottom: 20px;">Active Exports</h3>
+                <div id="exportsContainer">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading active exports...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Status -->
+    <div id="connectionStatus" class="connection-status disconnected">
+        Connecting...
+    </div>
+
+    <script>
+        let websocket = null;
+        let activeExports = {};
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadActiveExports();
+            connectWebSocket();
+        });
+
+        // Connect to WebSocket for real-time updates
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/progress`;
+
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = function() {
+                console.log('WebSocket connected');
+                updateConnectionStatus(true);
+                reconnectAttempts = 0;
+
+                // Send ping to keep connection alive
+                setInterval(() => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(JSON.stringify({type: 'ping'}));
+                    }
+                }, 30000);
+            };
+
+            websocket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            websocket.onclose = function() {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+
+                // Attempt to reconnect
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(() => {
+                        console.log(`Reconnecting... (attempt ${reconnectAttempts})`);
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                }
+            };
+
+            websocket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        // Handle WebSocket messages
+        function handleWebSocketMessage(data) {
+            if (data.type === 'progress_report') {
+                updateExportProgress(data);
+            } else if (data.type === 'notification') {
+                addNotification(data);
+            }
+        }
+
+        // Update connection status indicator
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            if (connected) {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'connection-status connected';
+            } else {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'connection-status disconnected';
+            }
+        }
+
+        // Load active exports from API
+        async function loadActiveExports() {
+            try {
+                const response = await fetch('/api/progress');
+                const data = await response.json();
+
+                activeExports = data.active_exports || {};
+                renderActiveExports();
+
+                // Load detailed progress for each export
+                for (const exportId of Object.keys(activeExports)) {
+                    loadExportProgress(exportId);
+                }
+
+            } catch (error) {
+                console.error('Error loading active exports:', error);
+                showError('Failed to load active exports');
+            }
+        }
+
+        // Load detailed progress for a specific export
+        async function loadExportProgress(exportId) {
+            try {
+                const response = await fetch(`/api/progress/${exportId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    updateExportProgress(data);
+                }
+            } catch (error) {
+                console.error(`Error loading progress for ${exportId}:`, error);
+            }
+        }
+
+        // Start a new export
+        async function startExport() {
+            const startBtn = document.getElementById('startExportBtn');
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting...';
+
+            try {
+                const params = new URLSearchParams();
+                if (dateFrom) params.append('date_from', dateFrom);
+                if (dateTo) params.append('date_to', dateTo);
+
+                const response = await fetch(`/export/sheets/enhanced?${params}`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Export started:', data);
+
+                    // Reload active exports to show the new one
+                    setTimeout(loadActiveExports, 1000);
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Failed to start export');
+                }
+
+            } catch (error) {
+                console.error('Error starting export:', error);
+                showError('Failed to start export');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start Enhanced Export';
+            }
+        }
+
+        // Cancel an export
+        async function cancelExport(exportId) {
+            if (!confirm('Are you sure you want to cancel this export?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/progress/${exportId}/cancel`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    console.log(`Export ${exportId} cancelled`);
+                } else {
+                    const error = await response.json();
+                    showError(error.detail || 'Failed to cancel export');
+                }
+
+            } catch (error) {
+                console.error('Error cancelling export:', error);
+                showError('Failed to cancel export');
+            }
+        }
+
+        // Update export progress in the UI
+        function updateExportProgress(data) {
+            activeExports[data.export_id] = data;
+            renderActiveExports();
+        }
+
+        // Add notification to the UI
+        function addNotification(notification) {
+            // Find the export card and add notification
+            const exportCard = document.querySelector(`[data-export-id="${notification.export_id}"]`);
+            if (exportCard) {
+                let notificationsContainer = exportCard.querySelector('.notifications');
+                if (!notificationsContainer) {
+                    notificationsContainer = document.createElement('div');
+                    notificationsContainer.className = 'notifications';
+                    notificationsContainer.innerHTML = '<h4 style="margin-bottom: 10px;">Recent Notifications</h4>';
+                    exportCard.appendChild(notificationsContainer);
+                }
+
+                const notificationEl = document.createElement('div');
+                notificationEl.className = `notification notification-${notification.level}`;
+                notificationEl.innerHTML = `
+                    <div>${notification.message}</div>
+                    <div class="notification-timestamp">${formatTimestamp(notification.timestamp)}</div>
+                `;
+
+                notificationsContainer.appendChild(notificationEl);
+
+                // Keep only last 5 notifications
+                const notifications = notificationsContainer.querySelectorAll('.notification');
+                if (notifications.length > 5) {
+                    notifications[0].remove();
+                }
+            }
+        }
+
+        // Render active exports
+        function renderActiveExports() {
+            const container = document.getElementById('exportsContainer');
+
+            if (Object.keys(activeExports).length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 40px;">No active exports</p>';
+                return;
+            }
+
+            container.innerHTML = Object.values(activeExports).map(exportData => {
+                return renderExportCard(exportData);
+            }).join('');
+        }
+
+        // Render a single export card
+        function renderExportCard(exportData) {
+            const entities = exportData.entities || {};
+            const spreadsheetUrls = exportData.spreadsheet_urls || {};
+
+            return `
+                <div class="export-card" data-export-id="${exportData.export_id}">
+                    <div class="export-header">
+                        <div>
+                            <div class="export-id">${exportData.export_id}</div>
+                            <div style="margin-top: 5px;">
+                                <span class="export-status status-${exportData.status}">${exportData.status}</span>
+                            </div>
+                        </div>
+                        <div>
+                            ${exportData.status === 'in_progress' ?
+                                `<button class="btn btn-danger" onclick="cancelExport('${exportData.export_id}')" style="font-size: 12px; padding: 6px 12px;">Cancel</button>` :
+                                ''
+                            }
+                        </div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${exportData.overall_progress || 0}%"></div>
+                    </div>
+                    <div class="progress-text">
+                        Overall Progress: ${(exportData.overall_progress || 0).toFixed(1)}%
+                        ${exportData.estimated_completion ?
+                            `• ETA: ${formatTimestamp(exportData.estimated_completion)}` :
+                            ''
+                        }
+                        ${exportData.duration ?
+                            `• Duration: ${formatDuration(exportData.duration)}` :
+                            ''
+                        }
+                    </div>
+
+                    <div class="entities-grid">
+                        ${Object.entries(entities).map(([entityType, entityData]) => `
+                            <div class="entity-card">
+                                <div class="entity-header">
+                                    <div class="entity-name">${entityType}</div>
+                                    <div class="export-status status-${entityData.status}">${entityData.status}</div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${entityData.progress_percentage || 0}%"></div>
+                                </div>
+                                <div class="entity-progress">
+                                    ${entityData.processed || 0}/${entityData.total || 0} items
+                                    ${entityData.current_batch && entityData.total_batches ?
+                                        `(Batch ${entityData.current_batch}/${entityData.total_batches})` :
+                                        ''
+                                    }
+                                    ${entityData.processing_rate ?
+                                        `<br>${entityData.processing_rate.toFixed(1)} items/sec` :
+                                        ''
+                                    }
+                                </div>
+                                ${entityData.error_message ?
+                                    `<div style="color: #ef4444; font-size: 12px; margin-top: 5px;">${entityData.error_message}</div>` :
+                                    ''
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${Object.keys(spreadsheetUrls).length > 0 ? `
+                        <div class="spreadsheet-links">
+                            <h4 style="margin-bottom: 10px;">Exported Spreadsheets:</h4>
+                            ${Object.entries(spreadsheetUrls).map(([entityType, url]) =>
+                                `<a href="${url}" target="_blank" class="spreadsheet-link">${entityType}</a>`
+                            ).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Utility functions
+        function formatTimestamp(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
+
+        function formatDuration(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes}m ${remainingSeconds}s`;
+        }
+
+        function showError(message) {
+            // Simple error display - could be enhanced with a proper notification system
+            alert(`Error: ${message}`);
+        }
+
+        // Refresh active exports every 30 seconds as fallback
+        setInterval(loadActiveExports, 30000);
+    </script>
+</body>
+</html>

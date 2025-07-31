@@ -189,13 +189,16 @@ class NetworkError(BaseAmoException):
     """Network communication error"""
 
     def __init__(self, message: str, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
         super().__init__(
             message,
             category=ErrorCategory.NETWORK,
             severity=ErrorSeverity.MEDIUM,
             is_retryable=True,
             retry_after=30,
-            **kwargs
+            **filtered_kwargs
         )
 
 
@@ -223,13 +226,17 @@ class RateLimitError(ApiError):
     """API rate limit exceeded"""
 
     def __init__(self, message: str = "Rate limit exceeded", retry_after: int = 60, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
         super().__init__(
             message,
-            is_retryable=True,
-            retry_after=retry_after,
-            severity=ErrorSeverity.LOW,
-            **kwargs
+            **filtered_kwargs
         )
+        # Set the specific attributes for this error type
+        self.is_retryable = True
+        self.retry_after = retry_after
+        self.severity = ErrorSeverity.LOW
 
 
 class ApiTimeoutError(ApiError):
@@ -286,6 +293,10 @@ class DatabaseTransactionError(DatabaseError):
 # Processing Errors
 class ProcessingError(BaseAmoException):
     """Data processing error"""
+
+
+class BatchProcessingError(ProcessingError):
+    """Batch processing operation error"""
 
     def __init__(self, message: str, stage: Optional[str] = None, **kwargs):
         super().__init__(
@@ -355,6 +366,177 @@ class ExportFormatError(ExportError):
         self.format_type = format_type
 
 
+# Google Sheets specific errors
+class GoogleSheetsError(ExportError):
+    """Google Sheets operation error"""
+
+    def __init__(self, message: str, spreadsheet_id: Optional[str] = None, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            export_type="google_sheets",
+            **filtered_kwargs
+        )
+        self.spreadsheet_id = spreadsheet_id
+
+
+class GoogleSheetsAuthError(GoogleSheetsError):
+    """Google Sheets authentication error"""
+
+    def __init__(self, message: str = "Google Sheets authentication failed", **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.category = ErrorCategory.AUTHENTICATION
+        self.severity = ErrorSeverity.HIGH
+        self.is_retryable = True
+        self.retry_after = 60
+
+
+class GoogleSheetsPermissionError(GoogleSheetsError):
+    """Google Sheets permission error"""
+
+    def __init__(self, message: str, spreadsheet_id: Optional[str] = None, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            spreadsheet_id=spreadsheet_id,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.category = ErrorCategory.AUTHORIZATION
+        self.severity = ErrorSeverity.HIGH
+
+
+class GoogleSheetsQuotaError(GoogleSheetsError):
+    """Google Sheets API quota exceeded"""
+
+    def __init__(self, message: str = "Google Sheets API quota exceeded", retry_after: int = 100, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.is_retryable = True
+        self.retry_after = retry_after
+        self.severity = ErrorSeverity.MEDIUM
+
+
+class GoogleSheetsRateLimitError(GoogleSheetsError):
+    """Google Sheets API rate limit exceeded"""
+
+    def __init__(self, message: str = "Google Sheets API rate limit exceeded", retry_after: int = 100, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.is_retryable = True
+        self.retry_after = retry_after
+        self.severity = ErrorSeverity.LOW
+
+
+class GoogleSheetsConfigError(GoogleSheetsError):
+    """Google Sheets configuration error"""
+
+    def __init__(self, message: str, config_key: Optional[str] = None, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.category = ErrorCategory.CONFIGURATION
+        self.severity = ErrorSeverity.HIGH
+        self.config_key = config_key
+
+
+class GoogleSheetsSpreadsheetNotFoundError(GoogleSheetsError):
+    """Google Sheets spreadsheet not found"""
+
+    def __init__(self, spreadsheet_id: str, **kwargs):
+        message = f"Spreadsheet not found: {spreadsheet_id}"
+        super().__init__(
+            message,
+            spreadsheet_id=spreadsheet_id,
+            severity=ErrorSeverity.HIGH,
+            **kwargs
+        )
+
+
+class GoogleSheetsSheetNotFoundError(GoogleSheetsError):
+    """Google Sheets sheet not found"""
+
+    def __init__(self, sheet_name: str, spreadsheet_id: Optional[str] = None, **kwargs):
+        message = f"Sheet '{sheet_name}' not found"
+        if spreadsheet_id:
+            message += f" in spreadsheet {spreadsheet_id}"
+        super().__init__(
+            message,
+            spreadsheet_id=spreadsheet_id,
+            **kwargs
+        )
+        self.sheet_name = sheet_name
+
+
+class GoogleSheetsBatchError(GoogleSheetsError):
+    """Google Sheets batch operation error"""
+
+    def __init__(self, message: str, batch_size: Optional[int] = None, failed_rows: Optional[int] = None, **kwargs):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.is_retryable = True
+        self.retry_after = 30
+        self.batch_size = batch_size
+        self.failed_rows = failed_rows
+
+
+class GoogleSheetsPartialExportError(GoogleSheetsError):
+    """Google Sheets partial export error"""
+
+    def __init__(
+        self,
+        message: str,
+        exported_entities: Optional[Dict[str, int]] = None,
+        failed_entities: Optional[List[str]] = None,
+        **kwargs
+    ):
+        # Remove conflicting parameters from kwargs before passing to parent
+        filtered_kwargs = {k: v for k, v in kwargs.items()
+                          if k not in ['category', 'severity', 'is_retryable', 'retry_after']}
+        super().__init__(
+            message,
+            **filtered_kwargs
+        )
+        # Set the specific attributes for this error type
+        self.severity = ErrorSeverity.MEDIUM
+        self.exported_entities = exported_entities or {}
+        self.failed_entities = failed_entities or []
+
+
 # Storage Errors
 class StorageError(BaseAmoException):
     """Storage operation error"""
@@ -380,6 +562,33 @@ class CacheError(StorageError):
             **kwargs
         )
         self.cache_key = cache_key
+
+
+# Concurrent Export Errors
+class ConcurrentExportError(BaseAmoException):
+    """Concurrent export management error"""
+
+    def __init__(self, message: str, export_id: Optional[str] = None, **kwargs):
+        super().__init__(
+            message,
+            category=ErrorCategory.PROCESSING,
+            severity=ErrorSeverity.MEDIUM,
+            **kwargs
+        )
+        self.export_id = export_id
+
+
+class RetrySchedulingError(BaseAmoException):
+    """Retry scheduling error"""
+
+    def __init__(self, message: str, batch_id: Optional[str] = None, **kwargs):
+        super().__init__(
+            message,
+            category=ErrorCategory.PROCESSING,
+            severity=ErrorSeverity.MEDIUM,
+            **kwargs
+        )
+        self.batch_id = batch_id
 
 
 # Business Logic Errors

@@ -1018,6 +1018,21 @@ def main():
     args = parser.parse_args()
 
     try:
+        # Validate Google Sheets configuration if it might be used
+        from ..core.google_sheets_config import GoogleSheetsConfigManager
+        google_sheets_config = GoogleSheetsConfigManager()
+        validation_result = google_sheets_config.validate_configuration()
+
+        if not validation_result.is_valid:
+            print("Warning: Google Sheets configuration is invalid:")
+            for error in validation_result.errors:
+                print(f"  - {error}")
+            print("Google Sheets export functionality will be disabled.")
+        elif validation_result.has_warnings:
+            print("Google Sheets configuration warnings:")
+            for warning in validation_result.warnings:
+                print(f"  - {warning}")
+
         exporter = ParallelExporter(max_workers=args.max_workers)
 
         if args.entity == 'all':

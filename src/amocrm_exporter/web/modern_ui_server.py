@@ -6,13 +6,14 @@ import webbrowser
 import hmac
 import hashlib
 import os
+import json
 from enum import Enum
 from typing import Callable, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 from pymongo import MongoClient
 
-from fastapi import FastAPI, HTTPException, Request, Header, Query
+from fastapi import FastAPI, HTTPException, Request, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,9 +24,14 @@ from ..storage.storage import Storage
 from ..exporters.parallel_exporter import ParallelExporter
 from ..exporters.excel_exporter import ExcelExporter
 from ..exporters.sheets_exporter import SheetsExporter
+from ..exporters.enhanced_sheets_exporter import EnhancedSheetsExporter
+from ..utils.progress_tracker import ExportProgressTracker
+from ..utils.progress_notifier import progress_notifier
 from .export_settings import ExportSettingsManager, EntityType as ExportEntityType, ExportSettings, FieldInfo
+from .config_validation_routes import router as config_validation_router
 from ..core import logger
 from ..core import config
+from ..core.google_sheets_config import GoogleSheetsConfigManager
 from ..storage.state_manager import StateManager
 from ..workers.message_broker import create_export_task, broker
 from ..processors.flattening_processor import get_flattening_processor
@@ -46,7 +52,7 @@ class EntityType(str, Enum):
     DEALS = "deals"  # Keep as "deals" for external API
     CONTACTS = "contacts"
     COMPANIES = "companies"
-    EVENTS = "events"
+    # EVENTS = "events"  # Excluded from export operations per requirement 9.5
     USERS = "users"
     PIPELINES = "pipelines"
     CUSTOM_FIELDS = "custom_fields"
@@ -71,8 +77,11 @@ logger.init_storage(storage)
 exporter = ParallelExporter()
 excel_exporter = ExcelExporter(storage)
 sheets_exporter = SheetsExporter(storage)
+enhanced_sheets_exporter = EnhancedSheetsExporter(storage)
+progress_tracker = ExportProgressTracker(storage)
 export_settings_manager = ExportSettingsManager(storage)
 flattening_processor = get_flattening_processor(storage)
+google_sheets_config = GoogleSheetsConfigManager()
 
 # Auto-continue exports that were still marked as running
 def continue_running_exports():
@@ -111,6 +120,9 @@ app.add_middleware(
 # Setup templates
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
+# Include configuration validation routes
+app.include_router(config_validation_router)
+
 # Initialize worker pool
 worker_pool = None
 
@@ -119,6 +131,22 @@ async def startup_event() -> None:
     """Initialize components on startup"""
     # No need to manually start the broker - it will be handled by FastStream
     log_event("api", "info", "Connected to RabbitMQ message broker")
+
+    # Validate Google Sheets configuration
+    try:
+        validation_result = google_sheets_config.validate_configuration()
+        if validation_result.is_valid:
+            log_event("api", "info", "Google Sheets configuration validation passed")
+            if validation_result.has_warnings:
+                for warning in validation_result.warnings:
+                    log_event("api", "warning", f"Google Sheets config warning: {warning}")
+        else:
+            log_event("api", "warning", "Google Sheets configuration validation failed")
+            for error in validation_result.errors:
+                log_event("api", "error", f"Google Sheets config error: {error}")
+            log_event("api", "info", "Google Sheets export functionality will be disabled until configuration is fixed")
+    except Exception as e:
+        log_event("api", "error", f"Error during Google Sheets configuration validation: {e}")
 
     # Start flattening processor
     try:
@@ -187,6 +215,24 @@ async def get_root(request: Request) -> HTMLResponse:
 async def render_export_settings_page(request: Request) -> HTMLResponse:
     """Render the export settings UI"""
     return templates.TemplateResponse("export-settings.html", {"request": request})
+
+
+@app.get("/progress", response_class=HTMLResponse)
+async def render_progress_page(request: Request) -> HTMLResponse:
+    """Render the export progress tracking UI"""
+    return templates.TemplateResponse("progress.html", {"request": request})
+
+
+@app.get("/config-validation", response_class=HTMLResponse)
+async def render_config_validation_page(request: Request) -> HTMLResponse:
+    """Render the Google Sheets configuration validation UI"""
+    return templates.TemplateResponse("config_validation.html", {"request": request})
+
+
+@app.get("/preset-management", response_class=HTMLResponse)
+async def render_preset_management_page(request: Request) -> HTMLResponse:
+    """Render the export preset management UI"""
+    return templates.TemplateResponse("preset-management.html", {"request": request})
 
 
 @app.get("/stats")
@@ -273,7 +319,7 @@ async def restart_export_handler(entity: EntityType) -> dict:
     """Forcibly restart an export regardless of its current state"""
     try:
         if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS, EntityType.USERS, EntityType.PIPELINES]:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.USERS, EntityType.PIPELINES]:  # Events excluded per requirement 9.5
                 exporter.restart_export(e.value)
             log_event("server", "info", "Restarting all exports")
             return {"success": True, "message": "All exports are being restarted"}
@@ -308,7 +354,7 @@ async def resume_export_handler(entity: EntityType) -> dict:
     """Resume an export from the last saved page without resetting state"""
     try:
         if entity == EntityType.ALL:
-            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.EVENTS, EntityType.USERS, EntityType.PIPELINES]:
+            for e in [EntityType.DEALS, EntityType.CONTACTS, EntityType.COMPANIES, EntityType.USERS, EntityType.PIPELINES]:  # Events excluded per requirement 9.5
                 exporter.resume_export(e.value)
             log_event("server", "info", "Resuming all exports")
             return {"success": True, "message": "All exports are being resumed"}
@@ -349,6 +395,14 @@ async def export_sheets_handler(
     date_to: str = Query(None)
 ) -> dict:
     try:
+        # Check configuration before attempting export
+        validation_result = google_sheets_config.validate_configuration()
+        if not validation_result.is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Google Sheets configuration is invalid: {'; '.join(validation_result.errors)}"
+            )
+
         sheets_url = sheets_exporter.export_all_to_sheets(
             date_from=date_from, date_to=date_to
         )
@@ -356,8 +410,474 @@ async def export_sheets_handler(
             "server", "info", f"Google Sheets export generated: {sheets_url}"
         )
         return {"url": sheets_url}
+    except HTTPException:
+        raise
     except Exception as e:
         log_event("server", "error", f"Error generating Google Sheets export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/export/sheets/enhanced")
+async def export_sheets_enhanced_handler(
+    date_from: str = Query(None),
+    date_to: str = Query(None)
+) -> dict:
+    """Start an enhanced Google Sheets export with progress tracking"""
+    try:
+        # Check configuration before attempting export
+        validation_result = google_sheets_config.validate_configuration()
+        if not validation_result.is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Google Sheets configuration is invalid: {'; '.join(validation_result.errors)}"
+            )
+
+        # Start enhanced export with progress tracking (events excluded per requirement 9.5)
+        export_id = progress_tracker.start_export(
+            entity_types=["leads", "contacts", "companies"]
+        )
+
+        # Start the export in the background
+        import asyncio
+        asyncio.create_task(
+            enhanced_sheets_exporter.export_all_to_sheets_with_progress(
+                date_from=date_from,
+                date_to=date_to,
+                export_id=export_id
+            )
+        )
+
+        log_event("server", "info", f"Started enhanced Google Sheets export: {export_id}")
+        return {
+            "export_id": export_id,
+            "message": "Export started with progress tracking",
+            "status": "started"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error starting enhanced Google Sheets export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/progress/{export_id}")
+async def get_export_progress(export_id: str) -> dict:
+    """Get current progress for a specific export"""
+    try:
+        progress = progress_tracker.get_export_progress(export_id)
+        if not progress:
+            raise HTTPException(status_code=404, detail="Export not found")
+
+        # Convert progress to JSON-serializable format
+        return {
+            "export_id": progress.export_id,
+            "status": progress.status.value,
+            "overall_progress": progress.overall_progress_percentage,
+            "start_time": progress.start_time.isoformat() if progress.start_time else None,
+            "end_time": progress.end_time.isoformat() if progress.end_time else None,
+            "estimated_completion": progress.estimated_completion.isoformat() if progress.estimated_completion else None,
+            "duration": progress.duration.total_seconds() if progress.duration else None,
+            "total_entities": progress.total_entities,
+            "completed_entities": progress.completed_entities,
+            "entities": {
+                entity_type: {
+                    "status": entity.status.value,
+                    "progress_percentage": entity.progress_percentage,
+                    "processed": entity.processed,
+                    "total": entity.total,
+                    "current_batch": entity.current_batch,
+                    "total_batches": entity.total_batches,
+                    "processing_rate": entity.processing_rate,
+                    "estimated_completion": entity.estimated_completion.isoformat() if entity.estimated_completion else None,
+                    "duration": entity.duration.total_seconds() if entity.duration else None,
+                    "error_message": entity.error_message
+                }
+                for entity_type, entity in progress.entities.items()
+            },
+            "spreadsheet_urls": progress.spreadsheet_urls,
+            "error_message": progress.error_message
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error getting export progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Export Preset Management Routes
+
+@app.get("/api/presets")
+async def list_presets(entity_type: str = Query(None)) -> dict:
+    """List all export presets, optionally filtered by entity type"""
+    try:
+        presets = export_settings_manager.preset_manager.list_presets(entity_type)
+        return {
+            "presets": [preset.to_dict() for preset in presets],
+            "count": len(presets)
+        }
+    except Exception as e:
+        log_event("server", "error", f"Error listing presets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/presets/{preset_id}")
+async def get_preset(preset_id: str) -> dict:
+    """Get a specific export preset by ID"""
+    try:
+        preset = export_settings_manager.preset_manager.load_preset(preset_id)
+        if not preset:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        return {"preset": preset.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error getting preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/presets")
+async def create_preset(request: Request) -> dict:
+    """Create a new export preset"""
+    try:
+        preset_data = await request.json()
+
+        # Validate preset data
+        from ..web.export_presets import ExportPreset
+        preset = ExportPreset.from_dict(preset_data)
+
+        # Save preset
+        preset_id = export_settings_manager.preset_manager.save_preset(preset)
+
+        log_event("server", "info", f"Created new preset: {preset.name} ({preset_id})")
+        return {
+            "preset_id": preset_id,
+            "message": "Preset created successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log_event("server", "error", f"Error creating preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/presets/{preset_id}")
+async def update_preset(preset_id: str, request: Request) -> dict:
+    """Update an existing export preset"""
+    try:
+        preset_data = await request.json()
+        preset_data['preset_id'] = preset_id
+
+        # Validate and update preset
+        from ..web.export_presets import ExportPreset
+        preset = ExportPreset.from_dict(preset_data)
+
+        # Save updated preset
+        saved_preset_id = export_settings_manager.preset_manager.save_preset(preset)
+
+        log_event("server", "info", f"Updated preset: {preset.name} ({saved_preset_id})")
+        return {
+            "preset_id": saved_preset_id,
+            "message": "Preset updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log_event("server", "error", f"Error updating preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/presets/{preset_id}")
+async def delete_preset(preset_id: str) -> dict:
+    """Delete an export preset"""
+    try:
+        success = export_settings_manager.preset_manager.delete_preset(preset_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Preset not found")
+
+        log_event("server", "info", f"Deleted preset: {preset_id}")
+        return {"message": "Preset deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error deleting preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/presets/{preset_id}/duplicate")
+async def duplicate_preset(preset_id: str, request: Request) -> dict:
+    """Duplicate an existing preset with a new name"""
+    try:
+        data = await request.json()
+        new_name = data.get('name')
+        if not new_name:
+            raise HTTPException(status_code=400, detail="New name is required")
+
+        new_preset_id = export_settings_manager.preset_manager.duplicate_preset(preset_id, new_name)
+        if not new_preset_id:
+            raise HTTPException(status_code=404, detail="Original preset not found")
+
+        log_event("server", "info", f"Duplicated preset {preset_id} as {new_name} ({new_preset_id})")
+        return {
+            "preset_id": new_preset_id,
+            "message": "Preset duplicated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error duplicating preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/export/sheets/with-presets")
+async def export_sheets_with_presets_handler(request: Request) -> dict:
+    """Start a Google Sheets export using saved presets"""
+    try:
+        data = await request.json()
+        preset_ids = data.get('preset_ids', {})  # entity_type -> preset_id mapping
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+
+        if not preset_ids:
+            raise HTTPException(status_code=400, detail="At least one preset must be specified")
+
+        # Check configuration before attempting export
+        validation_result = google_sheets_config.validate_configuration()
+        if not validation_result.is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Google Sheets configuration is invalid: {'; '.join(validation_result.errors)}"
+            )
+
+        # Load presets
+        presets = {}
+        for entity_type, preset_id in preset_ids.items():
+            preset = export_settings_manager.preset_manager.load_preset(preset_id)
+            if not preset:
+                raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+            presets[entity_type] = preset
+
+        # Start export with presets
+        sheets_urls = await sheets_exporter.export_with_presets(
+            presets=presets,
+            date_from=date_from,
+            date_to=date_to
+        )
+
+        log_event("server", "info", f"Google Sheets export with presets completed: {sheets_urls}")
+        return {
+            "urls": sheets_urls,
+            "message": "Export completed successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error in preset-based export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# WebSocket endpoint for real-time progress updates
+@app.websocket("/ws/progress")
+async def websocket_progress_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time export progress updates"""
+    await websocket.accept()
+
+    # Add this connection to the progress tracker
+    progress_tracker.add_websocket_connection(websocket)
+
+    try:
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                # Wait for client messages (ping/pong, etc.)
+                data = await websocket.receive_text()
+
+                # Handle client requests
+                try:
+                    message = json.loads(data)
+                    if message.get('type') == 'get_active_exports':
+                        # Send current active exports
+                        active_exports = progress_tracker.get_all_active_exports()
+                        response = {
+                            'type': 'active_exports',
+                            'exports': {
+                                export_id: {
+                                    'export_id': progress.export_id,
+                                    'status': progress.status.value,
+                                    'overall_progress': progress.overall_progress_percentage,
+                                    'entities': {
+                                        entity_type: {
+                                            'status': entity.status.value,
+                                            'progress': entity.progress_percentage,
+                                            'processed': entity.processed,
+                                            'total': entity.total
+                                        }
+                                        for entity_type, entity in progress.entities.items()
+                                    }
+                                }
+                                for export_id, progress in active_exports.items()
+                            }
+                        }
+                        await websocket.send_text(json.dumps(response))
+
+                except json.JSONDecodeError:
+                    # Ignore invalid JSON messages
+                    pass
+
+            except WebSocketDisconnect:
+                break
+
+    except Exception as e:
+        log_event("server", "error", f"WebSocket error: {e}")
+    finally:
+        # Remove this connection from the progress tracker
+        progress_tracker.remove_websocket_connection(websocket)
+
+
+# Export Settings API Routes (needed for preset management)
+
+@app.get("/api/export-settings/fields/{entity_type}")
+async def get_entity_fields(entity_type: str) -> dict:
+    """Get available fields for an entity type"""
+    try:
+        # Convert entity type to ExportEntityType enum
+        if entity_type not in [e.value for e in ExportEntityType]:
+            raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
+
+        entity_enum = ExportEntityType(entity_type)
+        fields = await export_settings_manager.get_available_fields(entity_enum)
+
+        return {
+            "fields": [field.to_dict() for field in fields],
+            "count": len(fields)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error getting entity fields: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/progress")
+async def get_all_active_exports() -> dict:
+    """Get all currently active exports"""
+    try:
+        active_exports = progress_tracker.get_all_active_exports()
+
+        # Convert to JSON-serializable format
+        exports_data = {}
+        for export_id, progress in active_exports.items():
+            exports_data[export_id] = {
+                "export_id": progress.export_id,
+                "status": progress.status.value,
+                "overall_progress": progress.overall_progress_percentage,
+                "start_time": progress.start_time.isoformat() if progress.start_time else None,
+                "estimated_completion": progress.estimated_completion.isoformat() if progress.estimated_completion else None,
+                "total_entities": progress.total_entities,
+                "completed_entities": progress.completed_entities,
+                "entity_count": len(progress.entities)
+            }
+
+        return {
+            "active_exports": exports_data,
+            "count": len(active_exports)
+        }
+
+    except Exception as e:
+        log_event("server", "error", f"Error getting active exports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/progress/{export_id}/cancel")
+async def cancel_export(export_id: str) -> dict:
+    """Cancel a running export"""
+    try:
+        success = progress_tracker.cancel_export(export_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Export not found or already completed")
+
+        log_event("server", "info", f"Cancelled export: {export_id}")
+        return {
+            "export_id": export_id,
+            "status": "cancelled",
+            "message": "Export has been cancelled"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_event("server", "error", f"Error cancelling export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/progress")
+async def websocket_progress_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time progress updates"""
+    await websocket.accept()
+
+    # Add connection to progress notifier
+    progress_notifier.add_websocket_connection(websocket)
+
+    try:
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                # Wait for messages (ping/pong or client requests)
+                data = await websocket.receive_text()
+
+                # Handle client messages if needed
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "ping":
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                except json.JSONDecodeError:
+                    # Ignore invalid JSON
+                    pass
+
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                log_event("server", "debug", f"WebSocket error: {e}")
+                break
+
+    finally:
+        # Remove connection from progress notifier
+        progress_notifier.remove_websocket_connection(websocket)
+        log_event("server", "debug", "WebSocket connection closed")
+
+
+@app.get("/api/progress/{export_id}/notifications")
+async def get_export_notifications(export_id: str, limit: int = Query(50)) -> dict:
+    """Get notification history for an export"""
+    try:
+        notifications = progress_notifier.get_notifications_history(export_id)
+
+        # Limit and convert to JSON-serializable format
+        limited_notifications = notifications[-limit:] if len(notifications) > limit else notifications
+
+        notifications_data = []
+        for notification in limited_notifications:
+            notifications_data.append({
+                "export_id": notification.export_id,
+                "level": notification.level.value,
+                "message": notification.message,
+                "entity_type": notification.entity_type,
+                "timestamp": notification.timestamp.isoformat(),
+                "details": notification.details
+            })
+
+        return {
+            "export_id": export_id,
+            "notifications": notifications_data,
+            "total_count": len(notifications),
+            "returned_count": len(notifications_data)
+        }
+
+    except Exception as e:
+        log_event("server", "error", f"Error getting export notifications: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -367,7 +887,7 @@ def get_stats() -> dict:
         deals = storage.get_entity_count("leads")
         contacts = storage.get_entity_count("contacts")
         companies = storage.get_entity_count("companies")
-        events = storage.get_entity_count("events")
+        events = 0  # Events excluded from export operations per requirement 9.5
         users = storage.get_entity_count("users")
         pipelines = storage.get_entity_count("pipelines")
 
@@ -399,7 +919,7 @@ async def fetch_entity(entity: EntityType, date_from=None, date_to=None) -> None
             EntityType.DEALS: exporter.export_deals,
             EntityType.CONTACTS: exporter.export_contacts,
             EntityType.COMPANIES: exporter.export_companies,
-            EntityType.EVENTS: exporter.export_events,
+            # EntityType.EVENTS: exporter.export_events,  # Excluded per requirement 9.5
             EntityType.USERS: exporter.export_users,
             EntityType.PIPELINES: exporter.export_pipelines,
             EntityType.CUSTOM_FIELDS: exporter.export_custom_fields,
@@ -472,8 +992,8 @@ async def webhook_handler(request: Request, x_signature: Optional[str] = Header(
             exporter.export_companies()
             log_event("webhook", "info", "Triggered companies export due to webhook")
         elif event_type in ("update_event", "add_event", "delete_event"):
-            exporter.export_events()
-            log_event("webhook", "info", "Triggered events export due to webhook")
+            # Events export disabled per requirement 9.5
+            log_event("webhook", "info", "Events export skipped (disabled per requirement 9.5)")
         # You can add more entity types here as needed
         return {"success": True, "event_type": event_type}
     except Exception as e:
@@ -578,17 +1098,8 @@ async def create_events_export_task(
     date_to: Optional[str] = None,
     priority: int = 1
 ) -> dict:
-    """Create a task to export events"""
-    task_id = await create_export_task(
-        entity_type="events",
-        batch_save=batch_save,
-        batch_size=batch_size,
-        date_from=date_from,
-        date_to=date_to,
-        force_restart=force_restart,
-        priority=priority
-    )
-    return {"task_id": task_id}
+    """Events export disabled per requirement 9.5"""
+    return {"error": "Events export is disabled per requirement 9.5", "task_id": None}
 
 @app.post("/api/tasks/export_all")
 async def create_all_export_tasks(
@@ -602,8 +1113,8 @@ async def create_all_export_tasks(
     """Create tasks to export all entity types"""
     task_ids = []
 
-    # Create a task for each entity type
-    for entity_type in ["leads", "contacts", "companies", "events"]:
+    # Create a task for each entity type (events excluded per requirement 9.5)
+    for entity_type in ["leads", "contacts", "companies"]:
         task_id = await create_export_task(
             entity_type=entity_type,
             batch_save=batch_save,
@@ -639,13 +1150,13 @@ async def get_worker_status() -> dict:
 async def get_available_fields(entity_type: str, force_refresh: bool = False, include_unnamed_fields: bool = False) -> dict:
     """Get available fields for an entity type"""
     try:
-        # Convert to ExportEntityType - support all entity types
+        # Convert to ExportEntityType - support all entity types (events excluded per requirement 9.5)
         entity_type_map = {
             "deals": ExportEntityType.DEALS,
             "leads": ExportEntityType.DEALS,  # Alias for deals
             "contacts": ExportEntityType.CONTACTS,
             "companies": ExportEntityType.COMPANIES,
-            "events": ExportEntityType.EVENTS,
+            # "events": ExportEntityType.EVENTS,  # Excluded per requirement 9.5
             "users": ExportEntityType.USERS,
             "pipelines": ExportEntityType.PIPELINES
         }
@@ -681,13 +1192,13 @@ async def get_available_fields(entity_type: str, force_refresh: bool = False, in
 async def get_field_preview(entity_type: str, field_name: str, limit: int = 10) -> dict:
     """Get preview data for a specific field"""
     try:
-        # Convert to ExportEntityType - support all entity types
+        # Convert to ExportEntityType - support all entity types (events excluded per requirement 9.5)
         entity_type_map = {
             "deals": ExportEntityType.DEALS,
             "leads": ExportEntityType.DEALS,  # Alias for deals
             "contacts": ExportEntityType.CONTACTS,
             "companies": ExportEntityType.COMPANIES,
-            "events": ExportEntityType.EVENTS,
+            # "events": ExportEntityType.EVENTS,  # Excluded per requirement 9.5
             "users": ExportEntityType.USERS,
             "pipelines": ExportEntityType.PIPELINES
         }
@@ -753,7 +1264,7 @@ async def list_export_settings(entity_type: Optional[str] = None) -> dict:
                 "leads": ExportEntityType.DEALS,  # Alias for deals
                 "contacts": ExportEntityType.CONTACTS,
                 "companies": ExportEntityType.COMPANIES,
-                "events": ExportEntityType.EVENTS,
+                # "events": ExportEntityType.EVENTS,  # Excluded per requirement 9.5
                 "users": ExportEntityType.USERS,
                 "pipelines": ExportEntityType.PIPELINES
             }
@@ -899,8 +1410,8 @@ async def stop_flattening() -> dict:
 async def force_sync_flattening(entity_type: str) -> dict:
     """Force immediate synchronization for a specific entity type"""
     try:
-        # Normalize entity type and validate
-        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        # Normalize entity type and validate (events excluded per requirement 9.5)
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "users", "pipelines"]
         if entity_type.lower() not in valid_entity_types:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
@@ -929,8 +1440,8 @@ async def cleanup_flattened_data() -> dict:
 async def search_flattened_data(entity_type: str, q: str = Query(...), limit: int = Query(20)) -> dict:
     """Search in flattened data"""
     try:
-        # Normalize entity type and validate
-        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        # Normalize entity type and validate (events excluded per requirement 9.5)
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "users", "pipelines"]
         if entity_type.lower() not in valid_entity_types:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
@@ -948,8 +1459,8 @@ async def search_flattened_data(entity_type: str, q: str = Query(...), limit: in
 async def get_flattened_statistics(entity_type: str) -> dict:
     """Get field statistics for flattened data"""
     try:
-        # Normalize entity type and validate
-        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        # Normalize entity type and validate (events excluded per requirement 9.5)
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "users", "pipelines"]
         if entity_type.lower() not in valid_entity_types:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
@@ -1037,8 +1548,8 @@ async def get_entities_paginated(entity_type: str, page: int = 1, page_size: int
                                 sort_field: str = None, sort_order: int = 1) -> dict:
     """Get entities with pagination support"""
     try:
-        # Validate entity type
-        valid_entity_types = ["leads", "deals", "contacts", "companies", "events", "users", "pipelines"]
+        # Validate entity type (events excluded per requirement 9.5)
+        valid_entity_types = ["leads", "deals", "contacts", "companies", "users", "pipelines"]
         if entity_type.lower() not in valid_entity_types:
             raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
@@ -1193,6 +1704,80 @@ async def get_benchmark_categories() -> dict:
     }
 
 # Flattening processor management endpoints
+
+# Google Sheets Configuration API Endpoints
+
+@app.get("/api/google-sheets/config/validate")
+async def validate_google_sheets_config() -> dict:
+    """Validate Google Sheets configuration"""
+    try:
+        validation_result = google_sheets_config.validate_configuration()
+        return {
+            "is_valid": validation_result.is_valid,
+            "errors": validation_result.errors,
+            "warnings": validation_result.warnings,
+            "missing_configs": validation_result.missing_configs
+        }
+    except Exception as e:
+        log_event("sheets_config", "error", f"Error validating Google Sheets config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/google-sheets/config/summary")
+async def get_google_sheets_config_summary() -> dict:
+    """Get Google Sheets configuration summary"""
+    try:
+        summary = google_sheets_config.get_configuration_summary()
+        return summary
+    except Exception as e:
+        log_event("sheets_config", "error", f"Error getting Google Sheets config summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/google-sheets/config/setup-guide")
+async def get_google_sheets_setup_guide() -> dict:
+    """Get guided setup instructions for Google Sheets configuration"""
+    try:
+        setup_guide = google_sheets_config.setup_guided_configuration()
+        return setup_guide
+    except Exception as e:
+        log_event("sheets_config", "error", f"Error getting Google Sheets setup guide: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/google-sheets/spreadsheet/{spreadsheet_id}/info")
+async def get_spreadsheet_info(spreadsheet_id: str) -> dict:
+    """Get information about a specific spreadsheet"""
+    try:
+        spreadsheet_info = google_sheets_config.get_spreadsheet_info(spreadsheet_id)
+        return {
+            "spreadsheet_id": spreadsheet_info.spreadsheet_id,
+            "title": spreadsheet_info.title,
+            "url": spreadsheet_info.url,
+            "sheets": spreadsheet_info.sheets,
+            "permissions": spreadsheet_info.permissions,
+            "last_modified": spreadsheet_info.last_modified.isoformat() if spreadsheet_info.last_modified else None
+        }
+    except Exception as e:
+        log_event("sheets_config", "error", f"Error getting spreadsheet info for {spreadsheet_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/google-sheets/spreadsheet/{spreadsheet_id}/test-permissions")
+async def test_spreadsheet_permissions(spreadsheet_id: str) -> dict:
+    """Test permissions for a specific spreadsheet"""
+    try:
+        permission_result = google_sheets_config.test_permissions(spreadsheet_id)
+        return {
+            "spreadsheet_id": spreadsheet_id,
+            "can_read": permission_result.can_read,
+            "can_write": permission_result.can_write,
+            "can_create_sheets": permission_result.can_create_sheets,
+            "error_message": permission_result.error_message
+        }
+    except Exception as e:
+        log_event("sheets_config", "error", f"Error testing permissions for {spreadsheet_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:

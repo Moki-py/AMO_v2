@@ -15,3 +15,4 @@ google-auth-oauthlib
 faststream[rabbit,cli]
 schedule
 redis
+psutil

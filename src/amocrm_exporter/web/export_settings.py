@@ -26,6 +26,7 @@ from ..core.logger import log_event
 from ..storage.storage import Storage
 from ..enrichment.data_enrichment import DataEnricher
 from ..core import config
+from .export_presets import ExportPresetManager, ExportPreset
 
 
 class EntityType(str, Enum):
@@ -33,7 +34,7 @@ class EntityType(str, Enum):
     DEALS = "deals"
     CONTACTS = "contacts"
     COMPANIES = "companies"
-    EVENTS = "events"
+    # EVENTS = "events"  # Excluded from export operations per requirement 9.5
     USERS = "users"
     PIPELINES = "pipelines"
 
@@ -88,12 +89,15 @@ class ExportSettingsManager:
         self.last_cache_update: Dict[str, datetime] = {}
         self.data_enricher = DataEnricher(storage)
 
+        # Initialize preset manager for schema presets
+        self.preset_manager = ExportPresetManager(storage)
+
         # Entity type to collection mapping
         self.entity_collections = {
             EntityType.DEALS: "deals",
             EntityType.CONTACTS: "contacts",
             EntityType.COMPANIES: "companies",
-            EntityType.EVENTS: "events",
+            # EntityType.EVENTS: "events",  # Excluded per requirement 9.5
             EntityType.USERS: "users",
             EntityType.PIPELINES: "pipelines"
         }
@@ -877,3 +881,267 @@ class ExportSettingsManager:
         except Exception as e:
             log_event("export_settings", "error", f"Error creating smart export settings for {entity_type}: {e}")
             return None
+   # ===== PRESET INTEGRATION METHODS =====
+
+    async def create_preset_from_settings(self, settings: ExportSettings, preset_name: str,
+                                        custom_field_mappings: Optional[Dict[str, str]] = None) -> str:
+        """
+        Create an export preset from existing export settings
+
+        Args:
+            settings: ExportSettings object to convert to preset
+            preset_name: Name for the new preset
+            custom_field_mappings: Optional custom field display name mappings
+
+        Returns:
+            str: The created preset ID
+        """
+        try:
+            # Create preset from settings
+            preset = ExportPreset(
+                name=preset_name,
+                entity_type=settings.entity_type,
+                selected_fields=settings.selected_fields,
+                field_order=settings.field_order,
+                custom_field_mappings=custom_field_mappings or {},
+                filters=settings.filters,
+                description=f"Preset created from export settings: {settings.name}"
+            )
+
+            # Save preset
+            preset_id = self.preset_manager.save_preset(preset)
+
+            log_event("export_settings", "info",
+                     f"Created preset '{preset_name}' from settings '{settings.name}' ({preset_id})")
+
+            return preset_id
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error creating preset from settings: {e}")
+            raise
+
+    async def apply_preset_to_settings(self, preset_id: str) -> Optional[ExportSettings]:
+        """
+        Convert an export preset to export settings format
+
+        Args:
+            preset_id: ID of the preset to convert
+
+        Returns:
+            ExportSettings object or None if preset not found
+        """
+        try:
+            # Load preset
+            preset = self.preset_manager.load_preset(preset_id)
+            if not preset:
+                log_event("export_settings", "warning", f"Preset not found: {preset_id}")
+                return None
+
+            # Convert to export settings
+            settings = ExportSettings(
+                entity_type=preset.entity_type,
+                selected_fields=preset.selected_fields,
+                field_order=preset.field_order,
+                filters=preset.filters,
+                name=f"Settings from preset: {preset.name}",
+                description=f"Generated from preset '{preset.name}' ({preset_id})",
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+
+            log_event("export_settings", "info",
+                     f"Applied preset '{preset.name}' to create export settings")
+
+            return settings
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error applying preset to settings: {e}")
+            return None
+
+    async def get_available_fields_with_preset_names(self, entity_type: EntityType,
+                                                   preset_id: Optional[str] = None,
+                                                   force_refresh: bool = False) -> List[FieldInfo]:
+        """
+        Get available fields with custom names applied from a preset
+
+        Args:
+            entity_type: Entity type to get fields for
+            preset_id: Optional preset ID to apply custom field names from
+            force_refresh: Force refresh of field cache
+
+        Returns:
+            List of FieldInfo objects with custom names applied
+        """
+        try:
+            # Get base field information
+            fields = await self.get_available_fields(entity_type, force_refresh)
+
+            # If no preset specified, return fields as-is
+            if not preset_id:
+                return fields
+
+            # Load preset for custom field mappings
+            preset = self.preset_manager.load_preset(preset_id)
+            if not preset or not preset.custom_field_mappings:
+                return fields
+
+            # Apply custom field names from preset
+            updated_fields = []
+            for field in fields:
+                updated_field = field
+
+                # Check if this field has a custom name in the preset
+                if field.is_custom and field.custom_id and field.custom_id in preset.custom_field_mappings:
+                    # Create a copy with updated name
+                    updated_field = FieldInfo(
+                        field_id=field.field_id,
+                        field_name=preset.custom_field_mappings[field.custom_id],
+                        field_type=field.field_type,
+                        is_custom=field.is_custom,
+                        custom_id=field.custom_id,
+                        preview_data=field.preview_data,
+                        description=f"Custom field: {preset.custom_field_mappings[field.custom_id]}",
+                        is_user_friendly=True  # Custom named fields are always user-friendly
+                    )
+
+                updated_fields.append(updated_field)
+
+            log_event("export_settings", "info",
+                     f"Applied custom field names from preset '{preset.name}' to {len(updated_fields)} fields")
+
+            return updated_fields
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error getting fields with preset names: {e}")
+            # Return base fields on error
+            return await self.get_available_fields(entity_type, force_refresh)
+
+    def get_preset_manager(self) -> ExportPresetManager:
+        """
+        Get the preset manager instance
+
+        Returns:
+            ExportPresetManager instance
+        """
+        return self.preset_manager
+
+    async def list_presets_for_entity(self, entity_type: EntityType) -> List[Dict[str, Any]]:
+        """
+        List all presets for a specific entity type
+
+        Args:
+            entity_type: Entity type to filter presets by
+
+        Returns:
+            List of preset dictionaries
+        """
+        try:
+            return self.preset_manager.get_presets_by_entity(entity_type.value)
+        except Exception as e:
+            log_event("export_settings", "error", f"Error listing presets for {entity_type}: {e}")
+            return []
+
+    async def ensure_unique_field_names(self, fields: List[str], entity_type: EntityType) -> List[str]:
+        """
+        Ensure field names are unique by applying preset mappings or generating unique names
+
+        Args:
+            fields: List of field names that may have duplicates
+            entity_type: Entity type for context
+
+        Returns:
+            List of unique field names
+        """
+        try:
+            # Get field information to understand custom fields
+            field_info_list = await self.get_available_fields(entity_type)
+            field_info_map = {field.field_id: field for field in field_info_list}
+
+            unique_fields = []
+            seen_names = set()
+
+            for field_id in fields:
+                field_info = field_info_map.get(field_id)
+
+                if not field_info:
+                    # Unknown field, use as-is
+                    unique_name = field_id
+                else:
+                    # Use the field's display name
+                    unique_name = field_info.field_name
+
+                # Ensure uniqueness
+                original_name = unique_name
+                counter = 1
+                while unique_name in seen_names:
+                    unique_name = f"{original_name}_{counter}"
+                    counter += 1
+
+                seen_names.add(unique_name)
+                unique_fields.append(unique_name)
+
+            return unique_fields
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error ensuring unique field names: {e}")
+            return fields  # Return original on error
+
+    async def validate_preset_compatibility(self, preset_id: str, entity_type: EntityType) -> Dict[str, Any]:
+        """
+        Validate that a preset is compatible with the current data structure
+
+        Args:
+            preset_id: ID of preset to validate
+            entity_type: Entity type to validate against
+
+        Returns:
+            Dictionary with validation results
+        """
+        try:
+            # Load preset
+            preset = self.preset_manager.load_preset(preset_id)
+            if not preset:
+                return {
+                    "is_valid": False,
+                    "errors": ["Preset not found"],
+                    "warnings": []
+                }
+
+            # Check entity type match
+            if preset.entity_type != entity_type.value:
+                return {
+                    "is_valid": False,
+                    "errors": [f"Preset is for {preset.entity_type}, but {entity_type.value} was requested"],
+                    "warnings": []
+                }
+
+            # Get current available fields
+            available_fields = await self.get_available_fields(entity_type)
+            available_field_ids = {field.field_id for field in available_fields}
+
+            # Check field availability
+            missing_fields = []
+            for field_id in preset.selected_fields:
+                if field_id not in available_field_ids:
+                    missing_fields.append(field_id)
+
+            warnings = []
+            if missing_fields:
+                warnings.append(f"Some fields are no longer available: {', '.join(missing_fields)}")
+
+            return {
+                "is_valid": len(missing_fields) == 0,
+                "errors": [],
+                "warnings": warnings,
+                "missing_fields": missing_fields,
+                "available_fields_count": len(available_field_ids),
+                "preset_fields_count": len(preset.selected_fields)
+            }
+
+        except Exception as e:
+            log_event("export_settings", "error", f"Error validating preset compatibility: {e}")
+            return {
+                "is_valid": False,
+                "errors": [f"Validation error: {str(e)}"],
+                "warnings": []
+            }

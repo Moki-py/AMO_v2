@@ -217,7 +217,7 @@
         .deals-icon { background-color: var(--primary-light); color: var(--primary); }
         .contacts-icon { background-color: var(--success-light); color: var(--success); }
         .companies-icon { background-color: var(--warning-light); color: var(--warning); }
-        .events-icon { background-color: var(--danger-light); color: var(--danger); }
+        /* .events-icon removed per requirement 9.5 */
         .users-icon { background-color: #e0f2fe; color: #0277bd; }
         .pipelines-icon { background-color: #fff3e0; color: #ef6c00; }
 
@@ -300,6 +300,15 @@
 
         .btn-secondary:hover {
             background-color: var(--dark);
+        }
+
+        .btn-info {
+            background-color: #3b82f6;
+            color: var(--white);
+        }
+
+        .btn-info:hover {
+            background-color: #2563eb;
         }
 
         .logs {
@@ -584,18 +593,7 @@
                 <div id="companiesStatus" class="export-status"></div>
             </div>
 
-            <div class="card">
-                <div class="stat">
-                    <div class="stat-icon events-icon">
-                        <i class="fas fa-calendar"></i>
-                    </div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="eventsCount">0</div>
-                        <div class="stat-label">Events</div>
-                    </div>
-                </div>
-                <div id="eventsStatus" class="export-status"></div>
-            </div>
+            <!-- Events card removed per requirement 9.5 -->
 
             <div class="card">
                 <div class="stat">
@@ -650,10 +648,7 @@
                         <i class="fas fa-building"></i>
                         Export Companies
                     </button>
-                    <button class="btn btn-primary" onclick="fetchData('events')">
-                        <i class="fas fa-calendar-alt"></i>
-                        Export Events
-                    </button>
+                    <!-- Events export button removed per requirement 9.5 -->
                     <button class="btn btn-primary" onclick="fetchData('users')">
                         <i class="fas fa-user-friends"></i>
                         Export Users
@@ -673,6 +668,14 @@
                     <button class="btn btn-secondary" onclick="window.location.href='/export-settings'">
                         <i class="fas fa-cog"></i>
                         Export Settings
+                    </button>
+                    <button class="btn btn-secondary" onclick="window.location.href='/preset-management'">
+                        <i class="fas fa-save"></i>
+                        Preset Management
+                    </button>
+                    <button class="btn btn-info" onclick="window.location.href='/progress'">
+                        <i class="fas fa-chart-line"></i>
+                        Export Progress
                     </button>
                 </div>
                 <div class="btn-group">
@@ -702,7 +705,7 @@
                         <option value="deals">Deals</option>
                         <option value="contacts">Contacts</option>
                         <option value="companies">Companies</option>
-                        <option value="events">Events</option>
+                        <!-- Events option removed per requirement 9.5 -->
                         <option value="users">Users</option>
                         <option value="pipelines">Pipelines</option>
                         <option value="sheets">Sheets</option>
@@ -755,7 +758,7 @@
                     document.getElementById('dealsCount').textContent = data.deals || 0;
                     document.getElementById('contactsCount').textContent = data.contacts || 0;
                     document.getElementById('companiesCount').textContent = data.companies || 0;
-                    document.getElementById('eventsCount').textContent = data.events || 0;
+                    // Events count removed per requirement 9.5
                     document.getElementById('usersCount').textContent = data.users || 0;
                     document.getElementById('pipelinesCount').textContent = data.pipelines || 0;
                 });
@@ -766,7 +769,7 @@
                     updateExportStatus('deals', data.status.leads);
                     updateExportStatus('contacts', data.status.contacts);
                     updateExportStatus('companies', data.status.companies);
-                    updateExportStatus('events', data.status.events);
+                    // Events status update removed per requirement 9.5
                     updateExportStatus('users', data.status.users);
                     updateExportStatus('pipelines', data.status.pipelines);
                 });

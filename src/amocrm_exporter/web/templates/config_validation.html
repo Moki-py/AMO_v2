@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets Configuration Validation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .status-ready { background-color: #d4edda; color: #155724; }
+        .status-warning { background-color: #fff3cd; color: #856404; }
+        .status-error { background-color: #f8d7da; color: #721c24; }
+        .status-unknown { background-color: #e2e3e5; color: #383d41; }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+
+        .test-result {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .test-result.pass { border-left: 4px solid #28a745; }
+        .test-result.fail { border-left: 4px solid #dc3545; }
+
+        .test-name {
+            font-weight: bold;
+            flex: 1;
+        }
+        .test-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .test-status.pass { background-color: #d4edda; color: #155724; }
+        .test-status.fail { background-color: #f8d7da; color: #721c24; }
+
+        .test-message {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+        .fix-suggestions {
+            margin-top: 8px;
+            padding-left: 20px;
+        }
+        .fix-suggestions li {
+            margin: 4px 0;
+            color: #856404;
+        }
+
+        .button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .button:hover { background-color: #0056b3; }
+        .button:disabled { background-color: #6c757d; cursor: not-allowed; }
+
+        .button.secondary {
+            background-color: #6c757d;
+        }
+        .button.secondary:hover { background-color: #545b62; }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading.show { display: block; }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .summary-item {
+            text-align: center;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        .summary-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .summary-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .recommendations {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .recommendations h4 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .recommendations ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .recommendations li {
+            margin: 5px 0;
+            color: #856404;
+        }
+
+        .error-message {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+
+        .spreadsheet-test {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .spreadsheet-item {
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+        }
+        .spreadsheet-item h5 {
+            margin-top: 0;
+            text-transform: capitalize;
+        }
+        .permission-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+        .permission-list li {
+            padding: 2px 0;
+            font-size: 14px;
+        }
+        .permission-list .granted { color: #28a745; }
+        .permission-list .denied { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Google Sheets Configuration Validation</h1>
+            <p>Comprehensive testing and validation of your Google Sheets export configuration</p>
+            <div>
+                <button class="button" onclick="runValidation()">Run Full Validation</button>
+                <button class="button secondary" onclick="runValidation('basic')">Basic Check</button>
+                <button class="button secondary" onclick="runValidation('connection')">Test Connection</button>
+                <button class="button secondary" onclick="getSetupGuide()">Setup Guide</button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Running validation tests...</p>
+        </div>
+
+        <div id="results" style="display: none;">
+            <!-- Overall Status -->
+            <div class="section">
+                <h3>Overall Status</h3>
+                <div id="overall-status">
+                    <span id="status-text">Unknown</span>
+                    <span id="status-badge" class="status-badge status-unknown">Unknown</span>
+                </div>
+                <div id="timestamp" style="font-size: 12px; color: #666; margin-top: 10px;"></div>
+            </div>
+
+            <!-- Summary -->
+            <div class="section">
+                <h3>Test Summary</h3>
+                <div class="summary-grid" id="summary-grid">
+                    <!-- Summary items will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Basic Configuration -->
+            <div class="section" id="basic-config-section">
+                <h3>Basic Configuration</h3>
+                <div id="basic-config-results">
+                    <!-- Basic config results will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Connection Test -->
+            <div class="section" id="connection-section">
+                <h3>Connection Test</h3>
+                <div id="connection-results">
+                    <!-- Connection results will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- OAuth Validation -->
+            <div class="section" id="oauth-section">
+                <h3>OAuth Validation</h3>
+                <div id="oauth-results">
+                    <!-- OAuth results will be populated by JavaScript -->
+                </div>
+                <button class="button secondary" onclick="refreshToken()" id="refresh-token-btn">Refresh Token</button>
+            </div>
+
+            <!-- Diagnostic Tests -->
+            <div class="section" id="diagnostics-section">
+                <h3>Diagnostic Tests</h3>
+                <div id="diagnostic-results">
+                    <!-- Diagnostic results will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Spreadsheet Tests -->
+            <div class="section" id="spreadsheet-section">
+                <h3>Spreadsheet Access Tests</h3>
+                <div class="spreadsheet-test" id="spreadsheet-results">
+                    <!-- Spreadsheet test results will be populated by JavaScript -->
+                </div>
+                <button class="button secondary" onclick="testAllSpreadsheets()" style="margin-top: 15px;">Test All Spreadsheets</button>
+            </div>
+
+            <!-- Recommendations -->
+            <div class="recommendations" id="recommendations" style="display: none;">
+                <h4>Recommendations</h4>
+                <ul id="recommendations-list">
+                    <!-- Recommendations will be populated by JavaScript -->
+                </ul>
+            </div>
+        </div>
+
+        <div id="error-container" style="display: none;">
+            <div class="error-message" id="error-message">
+                <!-- Error messages will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentResults = null;
+
+        async function runValidation(testType = null) {
+            showLoading(true);
+            hideError();
+
+            try {
+                const url = testType ? `/api/config/validate?test_type=${testType}` : '/api/config/validate?force_refresh=true';
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const results = await response.json();
+                currentResults = results;
+                displayResults(results);
+
+            } catch (error) {
+                showError(`Validation failed: ${error.message}`);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function getSetupGuide() {
+            showLoading(true);
+            hideError();
+
+            try {
+                const response = await fetch('/api/config/setup-guide');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const guide = await response.json();
+                displaySetupGuide(guide);
+
+            } catch (error) {
+                showError(`Failed to get setup guide: ${error.message}`);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function refreshToken() {
+            const btn = document.getElementById('refresh-token-btn');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+
+            try {
+                const response = await fetch('/api/config/refresh-token', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('Token refreshed successfully!');
+                    // Re-run validation to update results
+                    runValidation();
+                } else {
+                    alert(`Token refresh failed: ${result.message}`);
+                }
+
+            } catch (error) {
+                alert(`Token refresh failed: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Refresh Token';
+            }
+        }
+
+        async function testAllSpreadsheets() {
+            const entityTypes = ['leads', 'contacts', 'companies', 'events'];
+            const results = {};
+
+            for (const entityType of entityTypes) {
+                try {
+                    const response = await fetch(`/api/config/test-spreadsheet/${entityType}`, { method: 'POST' });
+                    results[entityType] = await response.json();
+                } catch (error) {
+                    results[entityType] = {
+                        entity_type: entityType,
+                        accessible: false,
+                        error: error.message
+                    };
+                }
+            }
+
+            displaySpreadsheetResults(results);
+        }
+
+        function displayResults(results) {
+            document.getElementById('results').style.display = 'block';
+
+            // Overall status
+            const statusText = document.getElementById('status-text');
+            const statusBadge = document.getElementById('status-badge');
+            const timestamp = document.getElementById('timestamp');
+
+            statusText.textContent = `Configuration Status: ${results.overall_status.replace('_', ' ').toUpperCase()}`;
+            statusBadge.textContent = results.overall_status.replace('_', ' ').toUpperCase();
+            statusBadge.className = `status-badge status-${getStatusClass(results.overall_status)}`;
+            timestamp.textContent = `Last checked: ${new Date(results.timestamp).toLocaleString()}`;
+
+            // Summary
+            if (results.summary) {
+                displaySummary(results.summary);
+            }
+
+            // Basic configuration
+            if (results.basic_validation) {
+                displayBasicConfig(results.basic_validation);
+            }
+
+            // Connection test
+            if (results.connection_test) {
+                displayConnectionTest(results.connection_test);
+            }
+
+            // OAuth validation
+            if (results.oauth_validation) {
+                displayOAuthValidation(results.oauth_validation);
+            }
+
+            // Diagnostic tests
+            if (results.diagnostic_tests) {
+                displayDiagnosticTests(results.diagnostic_tests);
+            }
+
+            // Recommendations
+            if (results.recommendations && results.recommendations.length > 0) {
+                displayRecommendations(results.recommendations);
+            }
+        }
+
+        function displaySummary(summary) {
+            const grid = document.getElementById('summary-grid');
+            grid.innerHTML = `
+                <div class="summary-item">
+                    <div class="summary-number">${summary.total_tests || 0}</div>
+                    <div class="summary-label">Total Tests</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #28a745;">${summary.passed_tests || 0}</div>
+                    <div class="summary-label">Passed</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #dc3545;">${summary.failed_tests || 0}</div>
+                    <div class="summary-label">Failed</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #ffc107;">${summary.warnings || 0}</div>
+                    <div class="summary-label">Warnings</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: ${summary.ready_for_export ? '#28a745' : '#dc3545'};">
+                        ${summary.ready_for_export ? 'YES' : 'NO'}
+                    </div>
+                    <div class="summary-label">Ready for Export</div>
+                </div>
+            `;
+        }
+
+        function displayBasicConfig(basicConfig) {
+            const container = document.getElementById('basic-config-results');
+            const status = basicConfig.is_valid ? 'pass' : 'fail';
+
+            let html = `
+                <div class="test-result ${status}">
+                    <div class="test-name">Configuration Validation</div>
+                    <div class="test-status ${status}">${status.toUpperCase()}</div>
+                </div>
+            `;
+
+            if (basicConfig.errors && basicConfig.errors.length > 0) {
+                html += '<div class="test-message"><strong>Errors:</strong><ul>';
+                basicConfig.errors.forEach(error => {
+                    html += `<li>${error}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (basicConfig.warnings && basicConfig.warnings.length > 0) {
+                html += '<div class="test-message"><strong>Warnings:</strong><ul>';
+                basicConfig.warnings.forEach(warning => {
+                    html += `<li>${warning}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function displayConnectionTest(connectionTest) {
+            const container = document.getElementById('connection-results');
+            const status = connectionTest.can_connect ? 'pass' : 'fail';
+
+            let html = `
+                <div class="test-result ${status}">
+                    <div class="test-name">Google Sheets API Connection</div>
+                    <div class="test-status ${status}">${status.toUpperCase()}</div>
+                </div>
+            `;
+
+            if (connectionTest.response_time_ms) {
+                html += `<div class="test-message">Response time: ${Math.round(connectionTest.response_time_ms)}ms</div>`;
+            }
+
+            if (connectionTest.error_details) {
+                html += `<div class="test-message"><strong>Error:</strong> ${connectionTest.error_details}</div>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function displayOAuthValidation(oauthValidation) {
+            const container = document.getElementById('oauth-results');
+
+            let html = `
+                <div class="test-result ${oauthValidation.credentials_file_valid ? 'pass' : 'fail'}">
+                    <div class="test-name">Credentials File</div>
+                    <div class="test-status ${oauthValidation.credentials_file_valid ? 'pass' : 'fail'}">
+                        ${oauthValidation.credentials_file_valid ? 'VALID' : 'INVALID'}
+                    </div>
+                </div>
+                <div class="test-result ${oauthValidation.token_valid ? 'pass' : 'fail'}">
+                    <div class="test-name">OAuth Token</div>
+                    <div class="test-status ${oauthValidation.token_valid ? 'pass' : 'fail'}">
+                        ${oauthValidation.token_valid ? 'VALID' : 'INVALID'}
+                    </div>
+                </div>
+            `;
+
+            if (oauthValidation.expires_at) {
+                html += `<div class="test-message">Token expires: ${new Date(oauthValidation.expires_at).toLocaleString()}</div>`;
+            }
+
+            if (oauthValidation.error_message) {
+                html += `<div class="test-message"><strong>Error:</strong> ${oauthValidation.error_message}</div>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function displayDiagnosticTests(diagnosticTests) {
+            const container = document.getElementById('diagnostic-results');
+            let html = '';
+
+            diagnosticTests.forEach(test => {
+                const status = test.passed ? 'pass' : 'fail';
+                html += `
+                    <div class="test-result ${status}">
+                        <div class="test-name">${test.test_name}</div>
+                        <div class="test-status ${status}">${status.toUpperCase()}</div>
+                    </div>
+                    <div class="test-message">${test.message}</div>
+                `;
+
+                if (test.fix_suggestions && test.fix_suggestions.length > 0 && !test.passed) {
+                    html += '<div class="fix-suggestions"><strong>Fix suggestions:</strong><ul>';
+                    test.fix_suggestions.forEach(suggestion => {
+                        html += `<li>${suggestion}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+            });
+
+            container.innerHTML = html;
+        }
+
+        function displaySpreadsheetResults(results) {
+            const container = document.getElementById('spreadsheet-results');
+            let html = '';
+
+            Object.values(results).forEach(result => {
+                const status = result.accessible ? 'pass' : 'fail';
+                html += `
+                    <div class="spreadsheet-item">
+                        <h5>${result.entity_type} Spreadsheet</h5>
+                        <div class="test-result ${status}">
+                            <div class="test-name">Access Test</div>
+                            <div class="test-status ${status}">${status.toUpperCase()}</div>
+                        </div>
+                `;
+
+                if (result.accessible && result.spreadsheet_info) {
+                    html += `
+                        <div class="test-message">
+                            <strong>Title:</strong> ${result.spreadsheet_info.title}<br>
+                            <strong>Sheets:</strong> ${result.spreadsheet_info.sheet_count}
+                        </div>
+                    `;
+
+                    if (result.permissions) {
+                        html += `
+                            <ul class="permission-list">
+                                <li class="${result.permissions.can_read ? 'granted' : 'denied'}">
+                                    Read: ${result.permissions.can_read ? '✓' : '✗'}
+                                </li>
+                                <li class="${result.permissions.can_write ? 'granted' : 'denied'}">
+                                    Write: ${result.permissions.can_write ? '✓' : '✗'}
+                                </li>
+                                <li class="${result.permissions.can_create_sheets ? 'granted' : 'denied'}">
+                                    Create Sheets: ${result.permissions.can_create_sheets ? '✓' : '✗'}
+                                </li>
+                            </ul>
+                        `;
+                    }
+                } else {
+                    html += `<div class="test-message"><strong>Error:</strong> ${result.error}</div>`;
+                }
+
+                html += '</div>';
+            });
+
+            container.innerHTML = html;
+        }
+
+        function displayRecommendations(recommendations) {
+            const container = document.getElementById('recommendations');
+            const list = document.getElementById('recommendations-list');
+
+            let html = '';
+            recommendations.forEach(recommendation => {
+                html += `<li>${recommendation}</li>`;
+            });
+
+            list.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        function displaySetupGuide(guide) {
+            // This would display the setup guide - simplified for now
+            alert('Setup guide functionality would be implemented here');
+        }
+
+        function getStatusClass(status) {
+            switch (status) {
+                case 'ready': return 'ready';
+                case 'configured_with_warnings': return 'warning';
+                case 'critical_issues': return 'error';
+                case 'needs_configuration': return 'error';
+                default: return 'unknown';
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('show', show);
+            document.getElementById('results').style.display = show ? 'none' : 'block';
+        }
+
+        function showError(message) {
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error-container').style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error-container').style.display = 'none';
+        }
+
+        // Auto-run basic validation on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            runValidation('basic');
+        });
+    </script>
+</body>
+</html>

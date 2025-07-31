@@ -10,7 +10,7 @@ This module provides:
 
 from enum import Enum
 from typing import Dict, List, Optional, Set, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from dataclasses import dataclass
 
 
@@ -215,7 +215,8 @@ class EntityTypeValidator(BaseModel):
 
     entity_type: str = Field(..., description="Entity type to validate")
 
-    @validator("entity_type")
+    @field_validator("entity_type")
+    @classmethod
     def validate_entity_type(cls, v):
         """Validate entity type"""
         if not v:
@@ -247,7 +248,8 @@ class EntityTypeSet(BaseModel):
 
     types: List[str] = Field(default_factory=list, description="List of entity types")
 
-    @validator("types")
+    @field_validator("types")
+    @classmethod
     def validate_types(cls, v):
         """Validate all entity types"""
         if not v:

@@ -1,12 +1,13 @@
 """
-Google Sheets exporter for AmoCRM data
+Google Sheets exporter for AmoCRM data with enhanced functionality
 """
 
 import os
 import json
 import time
+import asyncio
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Callable
 import traceback
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -17,6 +18,15 @@ from googleapiclient.errors import HttpError
 from ..storage.storage import Storage
 from ..core.logger import log_event
 from ..core import config
+from ..utils.exceptions import create_error_context
+from ..core.google_sheets_config import GoogleSheetsConfigManager
+from ..utils.data_formatter import DataFormatter, ColumnHeaderFormatter
+from ..utils.custom_field_processor import CustomFieldProcessor, CustomFieldMetadataExtractor
+from ..utils.progress_tracker import ExportProgressTracker, ExportStatus
+from ..utils.progress_notifier import progress_notifier
+from ..utils.error_handler import GoogleSheetsErrorHandler
+from ..utils.retry_logic import RetryConfiguration, ExponentialBackoffRetry
+from ..web.export_presets import ExportPresetManager, ExportPreset
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -25,47 +35,84 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 MAX_ROWS_PER_BATCH = 5000  # Increased from 1000 to 5000
 
 class SheetsExporter:
-    """Exports data from MongoDB to Google Sheets"""
+    """Exports data from MongoDB to Google Sheets with enhanced functionality"""
 
     def __init__(self, storage: Storage):
-        """Initialize the Google Sheets exporter"""
+        """Initialize the Google Sheets exporter with enhanced features"""
         self.storage = storage
+        self.config_manager = GoogleSheetsConfigManager()
         self.creds = None
         self.token_path = 'token.json'
         self.credentials_path = 'credentials.json'
-        # Get spreadsheet IDs from config settings
+
+        # Initialize data formatting components
+        self.data_formatter = DataFormatter()
+        self.header_formatter = ColumnHeaderFormatter()
+        self.custom_field_processor = CustomFieldProcessor()
+        self.field_metadata_extractor = CustomFieldMetadataExtractor()
+
+        # Initialize progress tracking system
+        self.progress_tracker = ExportProgressTracker(storage)
+        self.progress_tracker.add_progress_callback(self._on_progress_update)
+
+        # Initialize error handling system
+        self.error_handler = GoogleSheetsErrorHandler()
+
+        # Initialize retry configuration
+        self.retry_config = RetryConfiguration(
+            max_retries=3,
+            base_delay=1.0,
+            max_delay=60.0,
+            exponential_base=2.0,
+            jitter=True
+        )
+        self.retry_handler = ExponentialBackoffRetry(self.retry_config)
+
+        # Initialize preset manager
+        self.preset_manager = ExportPresetManager(storage)
+
+        # Validate configuration on initialization
+        validation_result = self.config_manager.validate_configuration()
+        if not validation_result.is_valid:
+            error_msg = (
+                f"Google Sheets configuration is invalid:\n" +
+                "\n".join(f"- {error}" for error in validation_result.errors)
+            )
+            raise Exception(error_msg)
+
+        # Get spreadsheet IDs from config settings (events excluded per requirement 9.5)
         self.spreadsheet_ids = {
             'leads': config.settings.google_sheets_leads_id,
             'contacts': config.settings.google_sheets_contacts_id,
-            'companies': config.settings.google_sheets_companies_id,
-            'events': config.settings.google_sheets_events_id
+            'companies': config.settings.google_sheets_companies_id
+            # Note: events spreadsheet ID removed per requirement 9.5
         }
-        # Validate spreadsheet IDs
-        missing_ids = [entity for entity, sheet_id in self.spreadsheet_ids.items() if not sheet_id]
-        if missing_ids:
-            raise Exception(
-                f"Missing Google Sheets IDs for: {', '.join(missing_ids)}\n"
-                "Please set the following in your .env file:\n" +
-                "\n".join(f"- GOOGLE_SHEETS_{entity.upper()}_ID" for entity in missing_ids)
-            )
 
     def _write_rows_with_retry(self, service, spreadsheet_id: str, range_name: str, rows: List[List[Any]], max_retries: int = 3) -> None:
-        """Write rows to a sheet with retry logic"""
-        for attempt in range(max_retries):
-            try:
-                body = {'values': rows}
-                service.spreadsheets().values().update(
-                    spreadsheetId=spreadsheet_id,
-                    range=range_name,
-                    valueInputOption='USER_ENTERED',  # Changed from 'RAW' to 'USER_ENTERED'
-                    body=body
-                ).execute()
-                return
-            except Exception as e:
-                if attempt == max_retries - 1:  # Last attempt
-                    raise
-                log_event("sheets", "warning", f"Attempt {attempt + 1} failed, retrying in 2 seconds... Error: {e}")
-                time.sleep(2)  # Wait before retrying
+        """Write rows to a sheet with enhanced retry logic"""
+        return asyncio.run(self._write_rows_with_retry_async(service, spreadsheet_id, range_name, rows, max_retries))
+
+    async def _write_rows_with_retry_async(self, service, spreadsheet_id: str, range_name: str, rows: List[List[Any]], max_retries: int = 3) -> None:
+        """Write rows to a sheet with enhanced async retry logic"""
+        async def write_operation():
+            body = {'values': rows}
+            return service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=range_name,
+                valueInputOption='USER_ENTERED',
+                body=body
+            ).execute()
+
+        try:
+            await self.retry_handler.execute_with_retry(
+                write_operation
+            )
+        except Exception as e:
+            # Handle specific Google Sheets API errors
+            context = create_error_context(component="sheets_api", operation="write_rows", range_name=range_name)
+            error_info = self.error_handler.handle_error(e, context)
+            log_event("sheets", "error", f"Failed to write rows after retries: {error_info.user_message}")
+            raise
 
     def _write_data_in_chunks(self, service, spreadsheet_id: str, sheet_name: str, rows: List[List[Any]]) -> None:
         """Write data to a sheet in chunks to avoid timeouts"""
@@ -121,110 +168,170 @@ class SheetsExporter:
 
     def export_all_to_sheets(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, str]:
         """
-        Export all entity data to separate Google Sheets
+        Export all entity data to separate Google Sheets (legacy method)
         Returns a dictionary mapping entity types to their spreadsheet URLs
         """
-        try:
-            start_time = time.time()
-            log_event("sheets", "info", "Starting Google Sheets export")
+        # Use the enhanced export method with progress tracking
+        return asyncio.run(self.export_all_to_sheets_with_progress(date_from, date_to))
 
-            self._get_credentials()
+    async def export_all_to_sheets_with_progress(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        export_id: Optional[str] = None,
+        presets: Optional[Dict[str, ExportPreset]] = None
+    ) -> Dict[str, str]:
+        """
+        Export all entity data to Google Sheets with enhanced error handling and progress tracking
+
+        Args:
+            date_from: Start date filter
+            date_to: End date filter
+            export_id: Optional export ID for tracking
+            presets: Optional dictionary of entity_type -> ExportPreset for custom field selection
+
+        Returns:
+            Dictionary mapping entity types to their spreadsheet URLs
+        """
+        # Determine entity types to export (excluding events per requirement 9.5)
+        entity_types = ["leads", "contacts", "companies"]
+
+        # Start progress tracking
+        if not export_id:
+            export_id = self.progress_tracker.start_export(entity_types=entity_types)
+        else:
+            self.progress_tracker.start_export(export_id=export_id, entity_types=entity_types)
+
+        # Notify export started
+        await progress_notifier.notify_export_started(export_id, entity_types)
+
+        try:
+            start_time = datetime.now()
+            log_event("sheets", "info", f"Starting enhanced Google Sheets export {export_id}")
+
+            # Get credentials and service with error handling
+            await self._get_credentials_with_retry()
             service = build('sheets', 'v4', credentials=self.creds)
 
-            # Build MongoDB query for updated_at filter
-            query = {}
-            if date_from or date_to:
-                query["updated_at"] = {}
-                if date_from:
-                    from_dt = int(datetime.fromisoformat(date_from).timestamp())
-                    query["updated_at"]["$gte"] = from_dt
-                if date_to:
-                    to_dt = int(datetime.fromisoformat(date_to).timestamp())
-                    query["updated_at"]["$lte"] = to_dt
-                if not query["updated_at"]:
-                    del query["updated_at"]
+            # Build query for date filtering
+            query = self._build_date_query(date_from, date_to)
 
-            # Get all entity data with filter
-            entities_data = {
-                "leads": self.storage.get_entities("leads", query=query) or [],
-                "contacts": self.storage.get_entities("contacts", query=query) or [],
-                "companies": self.storage.get_entities("companies", query=query) or [],
-                "events": self.storage.get_entities("events", query=query) or []
-            }
+            # Get all entity data with progress tracking
+            entities_data = await self._get_entities_data_with_progress(export_id, query)
 
             results = {}
-            # Process each entity type
-            for entity_type, data in entities_data.items():
-                entity_start_time = time.time()
-                try:
-                    spreadsheet_id = self.spreadsheet_ids.get(entity_type)
-                    if not spreadsheet_id:
-                        log_event("sheets", "warning", f"No spreadsheet ID configured for {entity_type}")
-                        continue
+            total_processed = 0
 
-                    # Skip empty data sets
+            # Process each entity type with progress tracking and error handling
+            for entity_type, data in entities_data.items():
+                try:
                     if not data:
                         log_event("sheets", "info", f"No {entity_type} data to export")
+                        self.progress_tracker.complete_entity(export_id, entity_type)
                         continue
 
-                    log_event("sheets", "info", f"Exporting {len(data)} {entity_type} records")
+                    # Get preset for this entity type if provided
+                    entity_preset = presets.get(entity_type) if presets else None
 
-                    # Process the data more efficiently
-                    processed_data = self._process_data_efficient(data)
-                    if not processed_data:
-                        log_event("sheets", "warning", f"No processed data for {entity_type}")
-                        continue
+                    # Export entity with progress tracking and preset support
+                    spreadsheet_url = await self._export_entity_with_progress_and_presets(
+                        export_id, entity_type, data, service, entity_preset
+                    )
 
-                    # Collect all headers from all items
-                    all_headers = self._collect_all_headers(processed_data)
-                    headers = sorted(list(all_headers))
+                    if spreadsheet_url:
+                        results[entity_type] = spreadsheet_url
+                        total_processed += len(data)
 
-                    # Start with headers row
-                    rows = [headers]
+                        # Complete entity export
+                        self.progress_tracker.complete_entity(
+                            export_id, entity_type, spreadsheet_url
+                        )
 
-                    # Build rows more efficiently, ensuring all values are safe for Google Sheets
-                    for item in processed_data:
-                        row = []
-                        for header in headers:
-                            value = item.get(header, '')
-                            # Make sure the value is a safe type for Google Sheets
-                            if isinstance(value, (list, dict)):
-                                try:
-                                    # Try to convert complex types to JSON strings
-                                    row.append(json.dumps(value))
-                                except (TypeError, ValueError):
-                                    # If JSON conversion fails, use string representation
-                                    row.append(str(value))
-                            elif value is None:
-                                row.append("")
-                            elif isinstance(value, str) and value.startswith('+'):
-                                # Protect values that start with + by prefixing with a single quote
-                                row.append(f"'{value}")
-                            else:
-                                row.append(value)
-                        rows.append(row)
+                        # Notify completion
+                        entity_progress = self.progress_tracker.get_export_progress(export_id).entities[entity_type]
+                        duration = entity_progress.duration.total_seconds() if entity_progress.duration else 0
+                        await progress_notifier.notify_entity_completed(
+                            export_id, entity_type, len(data), duration, spreadsheet_url
+                        )
 
-                    # Write data in chunks
-                    self._write_data_in_chunks(service, spreadsheet_id, 'Data', rows)
+                except Exception as entity_error:
+                    # Enhanced error handling
+                    context = create_error_context(
+                        component="sheets_exporter",
+                        operation=f"export_{entity_type}",
+                        entity_type=entity_type,
+                        export_id=export_id
+                    )
+                    error_info = self.error_handler.handle_error(entity_error, context)
 
-                    # Store the URL for this entity type
-                    results[entity_type] = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+                    log_event("sheets", "error", f"Error exporting {entity_type}: {error_info.user_message}")
 
-                    entity_time = time.time() - entity_start_time
-                    log_event("sheets", "info", f"Exported {entity_type} in {entity_time:.2f} seconds")
+                    # Handle entity error with progress tracking
+                    self.progress_tracker.handle_entity_error(export_id, entity_type, error_info.user_message)
+                    await progress_notifier.notify_entity_error(export_id, entity_type, error_info.user_message)
 
-                except Exception as sheet_error:
-                    log_event("sheets", "error", f"Error exporting {entity_type}: {sheet_error}")
-                    log_event("sheets", "error", f"Sheet error stack trace: {traceback.format_exc()}")
+            # Complete export
+            duration = (datetime.now() - start_time).total_seconds()
+            success = len(results) > 0
 
-            total_time = time.time() - start_time
-            log_event("sheets", "info", f"Completed export in {total_time:.2f} seconds")
+            self.progress_tracker.complete_export(export_id, success)
+            await progress_notifier.notify_export_completed(
+                export_id, success, total_processed, duration, results
+            )
+
+            log_event("sheets", "info", f"Enhanced export {export_id} completed in {duration:.2f}s")
             return results
 
         except Exception as e:
-            log_event("sheets", "error", f"Error exporting to Google Sheets: {e}")
+            # Enhanced error handling for overall export failure
+            context = create_error_context(
+                component="sheets_exporter",
+                operation="overall_export",
+                export_id=export_id
+            )
+            error_info = self.error_handler.handle_error(e, context)
+
+            log_event("sheets", "error", f"Enhanced export {export_id} failed: {error_info.user_message}")
             log_event("sheets", "error", f"Stack trace: {traceback.format_exc()}")
+
+            # Complete export with error
+            self.progress_tracker.complete_export(export_id, success=False, error_message=error_info.user_message)
+
+            # Send error notification
+            await progress_notifier.send_notification({
+                "export_id": export_id,
+                "level": "error",
+                "message": f"Export failed: {error_info.user_message}",
+                "details": {"error": error_info.user_message, "suggested_actions": error_info.suggested_actions}
+            })
+
             raise
+
+    async def export_with_presets(self, presets: Dict[str, ExportPreset], date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, str]:
+        """
+        Export data using saved presets for field selection and ordering
+
+        Args:
+            presets: Dictionary mapping entity_type to ExportPreset
+            date_from: Optional start date filter
+            date_to: Optional end date filter
+
+        Returns:
+            Dictionary mapping entity types to their spreadsheet URLs
+        """
+        log_event("sheets", "info", f"Starting export with {len(presets)} presets")
+
+        # Validate presets
+        for entity_type, preset in presets.items():
+            validation_errors = preset.validate()
+            if validation_errors:
+                raise ValueError(f"Invalid preset for {entity_type}: {'; '.join(validation_errors)}")
+
+        return await self.export_all_to_sheets_with_progress(
+            date_from=date_from,
+            date_to=date_to,
+            presets=presets
+        )
 
     def _collect_all_headers(self, processed_data: List[Dict[str, Any]]) -> Set[str]:
         """Efficiently collect all unique headers from processed data"""
@@ -428,72 +535,241 @@ class SheetsExporter:
             return timestamp
 
     def _get_credentials(self):
-        """Get or refresh Google API credentials"""
-        if not os.path.exists(self.credentials_path):
-            raise Exception(
-                "credentials.json not found. Please follow these steps:\n"
-                "1. Go to https://console.cloud.google.com/\n"
-                "2. Create a project or select an existing one\n"
-                "3. Enable the Google Sheets API\n"
-                "4. Go to 'APIs & Services' > 'Credentials'\n"
-                "5. Click 'Create Credentials' > 'OAuth client ID'\n"
-                "6. Choose 'Desktop app' as the application type\n"
-                "7. Download the JSON file and save it as 'credentials.json' in this directory"
-            )
+        """Get or refresh Google API credentials using the config manager (legacy method)"""
+        return asyncio.run(self._get_credentials_with_retry())
+
+    async def _get_credentials_with_retry(self):
+        """Get or refresh Google API credentials with enhanced error handling and retry logic"""
+        async def get_creds_operation():
+            self.config_manager._get_credentials()
+            self.creds = self.config_manager.creds
+            return self.creds
 
         try:
-            # Load the credentials file to validate its format
-            with open(self.credentials_path, 'r') as f:
-                creds_data = json.load(f)
-                if 'installed' not in creds_data and 'web' not in creds_data:
-                    raise ValueError(
-                        "Invalid credentials format. The credentials must be for a desktop or web application.\n"
-                        "Please make sure you selected 'Desktop app' when creating the OAuth client ID."
+            await self.retry_handler.execute_with_retry(
+                operation=get_creds_operation,
+                operation_name="get_credentials",
+                max_retries=3
+            )
+        except Exception as e:
+            context = create_error_context(component="sheets_exporter", operation="authentication")
+            error_info = self.error_handler.handle_error(e, context)
+            log_event("sheets", "error", f"Error getting credentials: {error_info.user_message}")
+            raise
+
+    def _on_progress_update(self, export_id: str, progress) -> None:
+        """Handle progress updates from the progress tracker"""
+        try:
+            # Log progress updates
+            log_event("sheets", "info",
+                     f"Export {export_id} progress: {progress.overall_progress_percentage:.1f}% "
+                     f"({progress.completed_entities}/{progress.total_entities} entities)")
+        except Exception as e:
+            log_event("sheets", "warning", f"Error in progress update callback: {e}")
+
+    def _build_date_query(self, date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
+        """Build MongoDB query for date filtering"""
+        query = {}
+        if date_from or date_to:
+            query["updated_at"] = {}
+            if date_from:
+                from_dt = int(datetime.fromisoformat(date_from).timestamp())
+                query["updated_at"]["$gte"] = from_dt
+            if date_to:
+                to_dt = int(datetime.fromisoformat(date_to).timestamp())
+                query["updated_at"]["$lte"] = to_dt
+            if not query["updated_at"]:
+                del query["updated_at"]
+        return query
+
+    async def _get_entities_data_with_progress(
+        self,
+        export_id: str,
+        query: Dict[str, Any]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get entity data and initialize progress tracking"""
+        entities_data = {}
+
+        # Entity types to export (excluding events per requirement 9.5)
+        entity_types = ["leads", "contacts", "companies"]
+
+        for entity_type in entity_types:
+            try:
+                # Get data from storage
+                data = self.storage.get_entities(entity_type, query=query) or []
+                entities_data[entity_type] = data
+
+                # Initialize entity progress
+                if data:
+                    # Calculate estimated batches (assuming batch size of 1000)
+                    batch_size = 1000
+                    total_batches = (len(data) + batch_size - 1) // batch_size
+
+                    self.progress_tracker.update_entity_progress(
+                        export_id=export_id,
+                        entity_type=entity_type,
+                        processed=0,
+                        total=len(data),
+                        current_batch=0,
+                        total_batches=total_batches,
+                        status=ExportStatus.PENDING
                     )
-        except json.JSONDecodeError:
-            raise ValueError(
-                "Invalid credentials.json file. The file must be a valid JSON file.\n"
-                "Please download a new credentials file from the Google Cloud Console."
+
+                    log_event("sheets", "info", f"Initialized {entity_type}: {len(data)} items, {total_batches} batches")
+
+            except Exception as e:
+                log_event("sheets", "error", f"Error getting {entity_type} data: {e}")
+                entities_data[entity_type] = []
+
+        return entities_data
+
+    async def _export_entity_with_progress_and_presets(
+        self,
+        export_id: str,
+        entity_type: str,
+        data: List[Dict[str, Any]],
+        service,
+        preset: Optional[ExportPreset] = None
+    ) -> Optional[str]:
+        """Export a single entity type with progress tracking and preset support"""
+        try:
+            spreadsheet_id = self.spreadsheet_ids.get(entity_type)
+            if not spreadsheet_id:
+                log_event("sheets", "warning", f"No spreadsheet ID configured for {entity_type}")
+                return None
+
+            # Update status to in progress
+            self.progress_tracker.update_entity_progress(
+                export_id=export_id,
+                entity_type=entity_type,
+                processed=0,
+                total=len(data),
+                status=ExportStatus.IN_PROGRESS
             )
 
-        if os.path.exists(self.token_path):
-            try:
-                self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception as e:
-                log_event("sheets", "warning", f"Error loading existing token: {e}")
-                # If token is invalid, delete it
-                os.remove(self.token_path)
-                self.creds = None
+            # Notify entity started
+            await progress_notifier.notify_entity_started(export_id, entity_type, len(data))
 
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                try:
-                    self.creds.refresh(Request())
-                except Exception as e:
-                    log_event("sheets", "warning", f"Error refreshing token: {e}")
-                    # If refresh fails, delete the token and start fresh
-                    os.remove(self.token_path)
-                    self.creds = None
+            log_event("sheets", "info", f"Exporting {len(data)} {entity_type} records")
 
-            if not self.creds:
-                try:
-                    flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, SCOPES)
-                    self.creds = flow.run_local_server(port=0)
-                except Exception as e:
-                    raise Exception(
-                        f"Error during OAuth flow: {str(e)}\n"
-                        "Please make sure you have:\n"
-                        "1. Enabled the Google Sheets API in your project\n"
-                        "2. Created OAuth 2.0 credentials for a desktop application\n"
-                        "3. Added your email as a test user in the OAuth consent screen"
+            # Process the data with enhanced custom field handling
+            processed_data = self._process_data_with_enhanced_custom_fields(data)
+            if not processed_data:
+                log_event("sheets", "warning", f"No processed data for {entity_type}")
+                return None
+
+            # Update progress after data processing
+            self.progress_tracker.update_entity_progress(
+                export_id=export_id,
+                entity_type=entity_type,
+                processed=len(processed_data) // 4,  # Rough estimate of processing progress
+                total=len(data)
+            )
+
+            # Apply preset field selection and ordering if provided
+            if preset:
+                processed_data, headers = self._apply_preset_to_data(processed_data, preset)
+            else:
+                # Collect headers and prepare rows with enhanced formatting
+                all_headers = self._collect_all_headers(processed_data)
+                headers = self._format_headers(list(all_headers), processed_data)
+
+            rows = [headers]
+
+            # Build rows with progress updates and enhanced formatting
+            batch_size = 1000
+            for i, item in enumerate(processed_data):
+                if preset:
+                    row = self._build_row_from_preset(item, preset)
+                else:
+                    row = self._build_formatted_row(item, all_headers)
+                rows.append(row)
+
+                # Update progress periodically
+                if (i + 1) % batch_size == 0 or i == len(processed_data) - 1:
+                    current_batch = (i // batch_size) + 1
+                    total_batches = (len(processed_data) + batch_size - 1) // batch_size
+
+                    self.progress_tracker.update_entity_progress(
+                        export_id=export_id,
+                        entity_type=entity_type,
+                        processed=i + 1,
+                        total=len(processed_data),
+                        current_batch=current_batch,
+                        total_batches=total_batches
                     )
 
-            # Save the credentials for the next run
-            try:
-                with open(self.token_path, 'w') as token:
-                    token.write(self.creds.to_json())
-            except Exception as e:
-                log_event("sheets", "warning", f"Error saving token: {e}")
+                    # Send progress notification
+                    await progress_notifier.notify_entity_progress(
+                        export_id, entity_type, i + 1, len(processed_data),
+                        current_batch, total_batches
+                    )
+
+            # Write data to sheets with progress tracking
+            await self._write_data_with_progress(
+                export_id, entity_type, service, spreadsheet_id, rows
+            )
+
+            # Return spreadsheet URL
+            return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+
+        except Exception as e:
+            log_event("sheets", "error", f"Error in _export_entity_with_progress_and_presets for {entity_type}: {e}")
+            raise
+
+    async def _write_data_with_progress(
+        self,
+        export_id: str,
+        entity_type: str,
+        service,
+        spreadsheet_id: str,
+        rows: List[List[Any]]
+    ) -> None:
+        """Write data to sheets with progress updates"""
+        if not rows:
+            return
+
+        sheet_name = 'Data'
+
+        try:
+            # Ensure the sheet exists
+            self._ensure_sheet_exists(service, spreadsheet_id, sheet_name)
+
+            # Write headers first
+            headers = rows[0]
+            await self._write_rows_with_retry_async(service, spreadsheet_id, f'{sheet_name}!A1', [headers])
+
+            # Write data in chunks with progress updates
+            data_rows = rows[1:]
+            if not data_rows:
+                return
+
+            log_event("sheets", "info", f"Writing {len(data_rows)} rows in chunks")
+
+            chunk_size = MAX_ROWS_PER_BATCH
+            total_chunks = (len(data_rows) + chunk_size - 1) // chunk_size
+
+            for i in range(0, len(data_rows), chunk_size):
+                chunk = data_rows[i:i + chunk_size]
+                range_name = f'{sheet_name}!A{i + 2}'  # Start from row 2 (after headers)
+
+                # Write chunk with retry logic
+                await self._write_rows_with_retry_async(service, spreadsheet_id, range_name, chunk)
+
+                # Update progress
+                chunk_number = (i // chunk_size) + 1
+                log_event("sheets", "info", f"Wrote chunk {chunk_number}/{total_chunks} ({len(chunk)} rows)")
+
+                # Send progress notification
+                processed_items = min(i + chunk_size, len(data_rows))
+                await progress_notifier.notify_entity_progress(
+                    export_id, entity_type, processed_items, len(data_rows),
+                    chunk_number, total_chunks
+                )
+
+        except Exception as e:
+            log_event("sheets", "error", f"Error writing data for {entity_type}: {e}")
+            raise
 
     def _parse_custom_fields(self, custom_fields_values: Any) -> List[Dict[str, Any]]:
         """Parse custom fields values whether it's a string or already a list"""
@@ -554,3 +830,201 @@ class SheetsExporter:
                     field_types[key] = field_type
 
         return field_types
+
+    def _process_data_with_enhanced_custom_fields(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Process data with enhanced custom field handling
+        Implements requirements 7.2, 7.5 for custom field type preservation and graceful error handling
+        """
+        if not data:
+            return []
+
+        log_event("sheets", "info", f"Processing {len(data)} items with enhanced custom field handling")
+
+        # Extract field metadata for better processing
+        field_metadata = self.field_metadata_extractor.extract_field_metadata(data)
+        log_event("sheets", "info", f"Extracted metadata for {len(field_metadata)} custom fields")
+
+        # Use the existing efficient processing method as base
+        processed_data = self._process_data_efficient(data)
+
+        # Apply enhanced custom field processing
+        for item in processed_data:
+            try:
+                # Process custom fields with enhanced processor
+                custom_fields_values = None
+                # Find the original item to get custom_fields_values
+                for original_item in data:
+                    if original_item.get('id') == item.get('id'):
+                        custom_fields_values = original_item.get('custom_fields_values')
+                        break
+
+                if custom_fields_values:
+                    # Process custom fields with type preservation and graceful error handling
+                    processing_result = self.custom_field_processor.process_custom_fields(
+                        custom_fields_values,
+                        preserve_field_types=False,  # Convert to Google Sheets friendly format
+                        graceful_degradation=True
+                    )
+
+                    # Update processed custom fields in the item
+                    for field_name, field_value in processing_result.processed_fields.items():
+                        # Format the value using the data formatter
+                        formatted_value = self.data_formatter.format_value(field_value, None, field_name)
+                        item[field_name] = formatted_value
+
+                    if not processing_result.success:
+                        log_event("sheets", "warning",
+                            f"Custom field processing had errors for item {item.get('id', 'unknown')}: {processing_result.errors}")
+
+            except Exception as cf_error:
+                error_msg = f"Critical custom field processing error for item {item.get('id', 'unknown')}: {str(cf_error)}"
+                log_event("sheets", "error", error_msg)
+
+        return processed_data
+
+    def _apply_preset_to_data(self, data: List[Dict[str, Any]], preset: ExportPreset) -> tuple[List[Dict[str, Any]], List[str]]:
+        """
+        Apply preset field selection and ordering to processed data
+
+        Args:
+            data: Processed data items
+            preset: Export preset with field selection and ordering
+
+        Returns:
+            Tuple of (filtered_data, headers)
+        """
+        if not preset.selected_fields:
+            return data, []
+
+        # Create headers based on preset field order and custom field mappings
+        headers = []
+        for field_id in preset.field_order:
+            if field_id in preset.selected_fields:
+                # Use custom field mapping if available, otherwise use field_id
+                display_name = preset.get_display_name(field_id)
+                headers.append(display_name)
+
+        # Filter data to only include selected fields
+        filtered_data = []
+        for item in data:
+            filtered_item = {}
+            for field_id in preset.field_order:
+                if field_id in preset.selected_fields:
+                    display_name = preset.get_display_name(field_id)
+                    # Get value from original field_id
+                    value = item.get(field_id, '')
+                    filtered_item[display_name] = value
+            filtered_data.append(filtered_item)
+
+        log_event("sheets", "info", f"Applied preset '{preset.name}': {len(headers)} fields, {len(filtered_data)} items")
+        return filtered_data, headers
+
+    def _build_row_from_preset(self, item: Dict[str, Any], preset: ExportPreset) -> List[Any]:
+        """Build a row from an item using preset field ordering"""
+        row = []
+        for field_id in preset.field_order:
+            if field_id in preset.selected_fields:
+                display_name = preset.get_display_name(field_id)
+                value = item.get(display_name, '')
+
+                # Format the value using the data formatter
+                formatted_value = self.data_formatter.format_value(value, None, display_name)
+                row.append(formatted_value)
+
+        return row
+
+    def _build_formatted_row(self, item: Dict[str, Any], headers: List[str]) -> List[Any]:
+        """Build a row from an item and headers with enhanced formatting"""
+        row = []
+        for header in headers:
+            value = item.get(header, '')
+
+            # Determine field type if possible
+            field_type = self._detect_field_type(header, value)
+
+            # Format the value using the data formatter
+            formatted_value = self.data_formatter.format_value(value, field_type, header)
+            row.append(formatted_value)
+
+        return row
+
+    def _format_headers(self, headers: List[str], data: List[Dict[str, Any]]) -> List[str]:
+        """Format headers to be human-readable with fallbacks"""
+        formatted_headers = []
+
+        # Collect custom field mappings from data
+        custom_field_mappings = self._extract_custom_field_mappings(data)
+
+        for header in sorted(headers):
+            if header.startswith('custom_field_') or header in custom_field_mappings:
+                # Handle custom fields
+                display_name = custom_field_mappings.get(header)
+                formatted_header = self.header_formatter.format_custom_field_header(
+                    header, display_name=display_name
+                )
+            else:
+                # Handle regular fields
+                formatted_header = self.header_formatter.format_header(header)
+
+            formatted_headers.append(formatted_header)
+
+        return formatted_headers
+
+    def _extract_custom_field_mappings(self, data: List[Dict[str, Any]]) -> Dict[str, str]:
+        """Extract custom field display names from data"""
+        mappings = {}
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            # Look for custom field metadata in the original data
+            custom_fields_values = item.get('custom_fields_values')
+            if custom_fields_values:
+                custom_fields = self._parse_custom_fields(custom_fields_values)
+                for field in custom_fields:
+                    if isinstance(field, dict):
+                        field_id = field.get('field_id')
+                        field_name = field.get('field_name')
+                        if field_id and field_name:
+                            # Create mapping for the processed field name
+                            processed_field_name = f"custom_field_{field_id}"
+                            if field_name not in mappings.get(processed_field_name, ''):
+                                mappings[processed_field_name] = field_name
+
+        return mappings
+
+    def _detect_field_type(self, field_name: str, value: Any) -> Optional[str]:
+        """Detect field type based on field name and value characteristics"""
+        # Check field name patterns
+        if field_name in ('created_at', 'updated_at', 'closed_at', 'closest_task_at'):
+            return 'datetime'
+
+        if 'date' in field_name.lower():
+            return 'date'
+
+        if field_name in ('price', 'score') or 'amount' in field_name.lower():
+            return 'numeric'
+
+        if field_name in ('phone', 'mobile') or 'phone' in field_name.lower():
+            return 'text'  # Phone numbers should be treated as text
+
+        if field_name == 'email' or 'email' in field_name.lower():
+            return 'text'
+
+        if field_name in ('web', 'website') or 'url' in field_name.lower():
+            return 'url'
+
+        # Auto-detect based on value if no field name pattern matches
+        if isinstance(value, (int, float)):
+            return 'numeric'
+
+        if isinstance(value, str) and value.isdigit():
+            # Could be timestamp or numeric
+            if len(value) == 10:  # Unix timestamp
+                return 'datetime'
+            else:
+                return 'numeric'
+
+        return None  # Let auto-detection handle it
