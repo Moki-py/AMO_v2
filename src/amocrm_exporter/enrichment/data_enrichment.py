@@ -48,9 +48,16 @@ class DataEnricher:
             log_event("enricher", "error", f"Error refreshing pipeline cache: {e}")
 
     def _refresh_custom_fields_cache(self):
-        """Refresh custom fields cache from API or storage"""
+        """Refresh custom fields cache from Redis, MongoDB, or API (in that order)"""
         try:
-            # Try to get from storage first
+            # First, try to get from Redis cache
+            cached_all_fields = self.cache_manager.get_all_custom_fields()
+            if cached_all_fields:
+                log_event("enricher", "info", "Using custom fields from Redis cache")
+                self._build_in_memory_cache_from_all_fields(cached_all_fields)
+                return
+
+            # Try to get from MongoDB storage if Redis cache miss
             custom_fields_collection = self.storage.db.get_collection("custom_fields")
             stored_fields = list(custom_fields_collection.find())
 
@@ -66,6 +73,7 @@ class DataEnricher:
 
                 if datetime.now() - latest_update < timedelta(hours=24):
                     should_fetch_from_api = False
+                    log_event("enricher", "info", "Using custom fields from MongoDB storage")
 
             if should_fetch_from_api:
                 # Fetch fresh data from API
@@ -75,7 +83,7 @@ class DataEnricher:
                     api = AmoCRMAPI()
                     all_custom_fields = api.get_all_custom_fields()
 
-                    # Store in database with timestamp
+                    # Store in MongoDB with timestamp
                     custom_fields_collection.delete_many({})  # Clear old data
 
                     for entity_type, fields in all_custom_fields.items():
@@ -85,13 +93,43 @@ class DataEnricher:
                         if fields:
                             custom_fields_collection.insert_many(fields)
 
+                    # Store in Redis cache for fast future access
+                    self.cache_manager.set_all_custom_fields(all_custom_fields)
+
+                    # Also cache individual entity type mappings
+                    for entity_type, fields in all_custom_fields.items():
+                        # Cache raw fields for entity type
+                        self.cache_manager.set_custom_fields(entity_type, fields)
+
+                        # Cache mapping (field_id -> field_info) for easy lookup
+                        mapping = {str(field.get("id")): field for field in fields if field.get("id")}
+                        self.cache_manager.set_custom_fields_mapping(entity_type, mapping)
+
                     stored_fields = list(custom_fields_collection.find())
                     log_event("enricher", "info", f"Updated custom fields cache from API with {len(stored_fields)} fields")
 
                 except Exception as e:
                     log_event("enricher", "warning", f"Failed to fetch from API, using stored data: {e}")
 
-            # Build cache from stored data
+            # If we have stored fields but no API data, rebuild all_custom_fields and cache it
+            if stored_fields and not cached_all_fields:
+                all_custom_fields = {}
+                for field in stored_fields:
+                    entity_type = field.get("entity_type", "unknown")
+                    if entity_type not in all_custom_fields:
+                        all_custom_fields[entity_type] = []
+                    all_custom_fields[entity_type].append(field)
+
+                # Store in Redis cache
+                self.cache_manager.set_all_custom_fields(all_custom_fields)
+
+                # Cache individual entity mappings
+                for entity_type, fields in all_custom_fields.items():
+                    self.cache_manager.set_custom_fields(entity_type, fields)
+                    mapping = {str(field.get("id")): field for field in fields if field.get("id")}
+                    self.cache_manager.set_custom_fields_mapping(entity_type, mapping)
+
+            # Build in-memory cache from stored data
             self._custom_fields_cache = {}
             for field in stored_fields:
                 entity_type = field.get("entity_type", "unknown")
@@ -108,6 +146,163 @@ class DataEnricher:
         except Exception as e:
             log_event("enricher", "error", f"Error refreshing custom fields cache: {e}")
             self._custom_fields_cache = {}
+
+    def _build_in_memory_cache_from_all_fields(self, all_custom_fields: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Build in-memory cache from all_custom_fields structure"""
+        try:
+            self._custom_fields_cache = {}
+            for entity_type, fields in all_custom_fields.items():
+                if entity_type not in self._custom_fields_cache:
+                    self._custom_fields_cache[entity_type] = {}
+
+                for field in fields:
+                    field_id = field.get("id")
+                    if field_id:
+                        self._custom_fields_cache[entity_type][field_id] = field
+
+            log_event("enricher", "info", f"Built in-memory cache from Redis: {sum(len(fields) for fields in self._custom_fields_cache.values())} total fields")
+        except Exception as e:
+            log_event("enricher", "error", f"Error building in-memory cache from Redis data: {e}")
+            self._custom_fields_cache = {}
+
+    def invalidate_custom_fields_cache(self, entity_type: Optional[str] = None) -> None:
+        """Invalidate custom fields cache in Redis and local memory"""
+        try:
+            # Invalidate Redis cache
+            self.cache_manager.invalidate_custom_fields_cache(entity_type)
+
+            # Clear local cache
+            if entity_type:
+                if entity_type in self._custom_fields_cache:
+                    del self._custom_fields_cache[entity_type]
+                    log_event("enricher", "info", f"Cleared local custom fields cache for {entity_type}")
+            else:
+                self._custom_fields_cache.clear()
+                log_event("enricher", "info", "Cleared all local custom fields cache")
+
+            # Force cache refresh on next access
+            self._cache_timestamp = datetime.min
+
+        except Exception as e:
+            log_event("enricher", "error", f"Error invalidating custom fields cache: {e}")
+
+    def get_custom_field_from_cache(self, entity_type: str, field_id: int) -> Optional[Dict[str, Any]]:
+        """Get a specific custom field from Redis cache (bypassing local cache)"""
+        try:
+            # Try to get from Redis mapping first
+            mapping = self.cache_manager.get_custom_fields_mapping(entity_type)
+            if mapping and str(field_id) in mapping:
+                return mapping[str(field_id)]
+
+            # Fallback to checking if we have all fields cached
+            all_fields = self.cache_manager.get_all_custom_fields()
+            if all_fields and entity_type in all_fields:
+                for field in all_fields[entity_type]:
+                    if field.get("id") == field_id:
+                        return field
+
+            return None
+
+        except Exception as e:
+            log_event("enricher", "error", f"Error getting custom field {field_id} for {entity_type} from cache: {e}")
+            return None
+
+    def refresh_custom_fields_from_api(self, entity_type: Optional[str] = None) -> None:
+        """Force refresh custom fields from API and update all caches"""
+        try:
+            from ..core.api import AmoCRMAPI
+            api = AmoCRMAPI()
+
+            if entity_type:
+                # Refresh specific entity type
+                log_event("enricher", "info", f"Force refreshing custom fields for {entity_type} from API")
+
+                # Invalidate existing cache
+                self.invalidate_custom_fields_cache(entity_type)
+
+                # Fetch fresh data
+                custom_fields = api.get_custom_fields(entity_type, use_cache=False)
+
+                # Update cache
+                self.cache_manager.set_custom_fields(entity_type, custom_fields)
+                mapping = {str(field.get("id")): field for field in custom_fields if field.get("id")}
+                self.cache_manager.set_custom_fields_mapping(entity_type, mapping)
+
+                log_event("enricher", "info", f"Refreshed {len(custom_fields)} custom fields for {entity_type}")
+
+            else:
+                # Refresh all entity types
+                log_event("enricher", "info", "Force refreshing all custom fields from API")
+
+                # Invalidate existing cache
+                self.invalidate_custom_fields_cache()
+
+                # Fetch fresh data
+                all_custom_fields = api.get_all_custom_fields(use_cache=False)
+
+                # Update cache
+                self.cache_manager.set_all_custom_fields(all_custom_fields)
+
+                for entity_type, fields in all_custom_fields.items():
+                    self.cache_manager.set_custom_fields(entity_type, fields)
+                    mapping = {str(field.get("id")): field for field in fields if field.get("id")}
+                    self.cache_manager.set_custom_fields_mapping(entity_type, mapping)
+
+                total_fields = sum(len(fields) for fields in all_custom_fields.values())
+                log_event("enricher", "info", f"Refreshed {total_fields} total custom fields")
+
+            # Refresh local cache
+            self._refresh_custom_fields_cache()
+
+        except Exception as e:
+            log_event("enricher", "error", f"Error force refreshing custom fields from API: {e}")
+
+    def get_custom_fields_cache_status(self) -> Dict[str, Any]:
+        """Get status information about custom fields caching"""
+        try:
+            cache_stats = {
+                "redis_connected": self.cache_manager.is_connected,
+                "local_cache_entities": list(self._custom_fields_cache.keys()),
+                "local_cache_total_fields": sum(len(fields) for fields in self._custom_fields_cache.values()),
+                "cache_timestamp": self._cache_timestamp.isoformat(),
+                "cache_age_hours": (datetime.now() - self._cache_timestamp).total_seconds() / 3600,
+                "should_refresh": self._should_refresh_cache()
+            }
+
+            # Check Redis cache status
+            if self.cache_manager.is_connected:
+                redis_all_fields = self.cache_manager.get_all_custom_fields()
+                cache_stats["redis_has_all_fields"] = redis_all_fields is not None
+                if redis_all_fields:
+                    cache_stats["redis_total_fields"] = sum(len(fields) for fields in redis_all_fields.values())
+                    cache_stats["redis_entity_types"] = list(redis_all_fields.keys())
+                else:
+                    cache_stats["redis_total_fields"] = 0
+                    cache_stats["redis_entity_types"] = []
+
+                # Check individual entity caches
+                entity_types = ["leads", "contacts", "companies"]
+                cache_stats["redis_entity_status"] = {}
+                for entity_type in entity_types:
+                    fields = self.cache_manager.get_custom_fields(entity_type)
+                    mapping = self.cache_manager.get_custom_fields_mapping(entity_type)
+                    cache_stats["redis_entity_status"][entity_type] = {
+                        "has_fields": fields is not None,
+                        "fields_count": len(fields) if fields else 0,
+                        "has_mapping": mapping is not None,
+                        "mapping_count": len(mapping) if mapping else 0
+                    }
+            else:
+                cache_stats["redis_has_all_fields"] = False
+                cache_stats["redis_total_fields"] = 0
+                cache_stats["redis_entity_types"] = []
+                cache_stats["redis_entity_status"] = {}
+
+            return cache_stats
+
+        except Exception as e:
+            log_event("enricher", "error", f"Error getting custom fields cache status: {e}")
+            return {"error": str(e)}
 
     def get_custom_field_info(self, entity_type: str, field_id: int) -> Optional[Dict[str, Any]]:
         """Get custom field information by entity type and field ID"""

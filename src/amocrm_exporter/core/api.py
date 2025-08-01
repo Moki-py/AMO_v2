@@ -436,15 +436,41 @@ class AmoCRMAPI:
         )
         return all_pipelines
 
-    def get_custom_fields(self, entity_type: str) -> list[dict[str, Any]]:
+    def get_custom_fields(self, entity_type: str, use_cache: bool = True) -> list[dict[str, Any]]:
         """Get custom fields for a specific entity type"""
         try:
+            # Try to get from Redis cache first if cache is enabled
+            if use_cache:
+                from ..storage.cache_manager import get_cache_manager
+                cache_manager = get_cache_manager()
+                cached_fields = cache_manager.get_custom_fields(entity_type)
+                if cached_fields:
+                    log_event("api", "info", f"Retrieved {len(cached_fields)} custom fields for {entity_type} from cache")
+                    return cached_fields
+
+            # Fetch from API if not in cache
             endpoint = f"{entity_type}/custom_fields"
             response = self._make_request("GET", endpoint)
 
             if "_embedded" in response and "custom_fields" in response["_embedded"]:
                 custom_fields = response["_embedded"]["custom_fields"]
-                log_event("api", "info", f"Fetched {len(custom_fields)} custom fields for {entity_type}")
+                log_event("api", "info", f"Fetched {len(custom_fields)} custom fields for {entity_type} from API")
+
+                # Cache the results if cache is enabled
+                if use_cache:
+                    try:
+                        from ..storage.cache_manager import get_cache_manager
+                        cache_manager = get_cache_manager()
+                        cache_manager.set_custom_fields(entity_type, custom_fields)
+
+                        # Also cache the mapping for quick lookups
+                        mapping = {str(field.get("id")): field for field in custom_fields if field.get("id")}
+                        cache_manager.set_custom_fields_mapping(entity_type, mapping)
+
+                        log_event("api", "info", f"Cached {len(custom_fields)} custom fields for {entity_type}")
+                    except Exception as cache_error:
+                        log_event("api", "warning", f"Failed to cache custom fields for {entity_type}: {cache_error}")
+
                 return custom_fields
             else:
                 log_event("api", "warning", f"No custom fields found for {entity_type}")
@@ -454,23 +480,49 @@ class AmoCRMAPI:
             log_event("api", "error", f"Error fetching custom fields for {entity_type}: {e}")
             return []
 
-    def get_all_custom_fields(self) -> dict[str, list[dict[str, Any]]]:
+    def get_all_custom_fields(self, use_cache: bool = True) -> dict[str, list[dict[str, Any]]]:
         """Get custom fields for all supported entity types"""
-        entity_types = ["leads", "contacts", "companies"]
-        all_custom_fields = {}
+        try:
+            # Try to get all custom fields from cache first if cache is enabled
+            if use_cache:
+                from ..storage.cache_manager import get_cache_manager
+                cache_manager = get_cache_manager()
+                cached_all_fields = cache_manager.get_all_custom_fields()
+                if cached_all_fields:
+                    total_fields = sum(len(fields) for fields in cached_all_fields.values())
+                    log_event("api", "info", f"Retrieved {total_fields} custom fields total from cache")
+                    return cached_all_fields
 
-        for entity_type in entity_types:
-            try:
-                custom_fields = self.get_custom_fields(entity_type)
-                all_custom_fields[entity_type] = custom_fields
-            except Exception as e:
-                log_event("api", "error", f"Error fetching custom fields for {entity_type}: {e}")
-                all_custom_fields[entity_type] = []
+            # Fetch from API if not in cache
+            entity_types = ["leads", "contacts", "companies"]
+            all_custom_fields = {}
 
-        total_fields = sum(len(fields) for fields in all_custom_fields.values())
-        log_event("api", "info", f"Fetched {total_fields} custom fields total across all entity types")
+            for entity_type in entity_types:
+                try:
+                    custom_fields = self.get_custom_fields(entity_type, use_cache=use_cache)
+                    all_custom_fields[entity_type] = custom_fields
+                except Exception as e:
+                    log_event("api", "error", f"Error fetching custom fields for {entity_type}: {e}")
+                    all_custom_fields[entity_type] = []
 
-        return all_custom_fields
+            total_fields = sum(len(fields) for fields in all_custom_fields.values())
+            log_event("api", "info", f"Fetched {total_fields} custom fields total across all entity types")
+
+            # Cache the complete result if cache is enabled
+            if use_cache:
+                try:
+                    from ..storage.cache_manager import get_cache_manager
+                    cache_manager = get_cache_manager()
+                    cache_manager.set_all_custom_fields(all_custom_fields)
+                    log_event("api", "info", f"Cached all custom fields ({total_fields} total)")
+                except Exception as cache_error:
+                    log_event("api", "warning", f"Failed to cache all custom fields: {cache_error}")
+
+            return all_custom_fields
+
+        except Exception as e:
+            log_event("api", "error", f"Error in get_all_custom_fields: {e}")
+            return {"leads": [], "contacts": [], "companies": []}
 
     def get_custom_fields_page(self, page: int, date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict[str, Any]], bool]:
         """Get custom fields page - custom fields don't support pagination so we return all on first page"""

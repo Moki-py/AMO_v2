@@ -9,7 +9,7 @@ This module provides:
 """
 
 from enum import Enum
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 from dataclasses import dataclass
 
@@ -22,7 +22,7 @@ class EntityType(str, Enum):
     LEADS = "leads"  # Alias for deals (AmoCRM internal representation)
     CONTACTS = "contacts"
     COMPANIES = "companies"
-    EVENTS = "events"
+    # EVENTS = "events"  # Disabled per requirement 9.5
     USERS = "users"
     PIPELINES = "pipelines"
     CUSTOM_FIELDS = "custom_fields"
@@ -37,7 +37,7 @@ class EntityType(str, Enum):
             cls.DEALS.value,
             cls.CONTACTS.value,
             cls.COMPANIES.value,
-            cls.EVENTS.value,
+            # cls.EVENTS.value,  # Disabled per requirement 9.5
             cls.USERS.value,
             cls.PIPELINES.value,
             cls.CUSTOM_FIELDS.value
@@ -74,7 +74,7 @@ class EntityType(str, Enum):
             "deals": "deals",
             "contacts": "contacts",
             "companies": "companies",
-            "events": "events",
+            # "events": "events",  # Disabled per requirement 9.5
             "users": "users",
             "pipelines": "pipelines",
             "all": "all"
@@ -92,7 +92,7 @@ class EntityType(str, Enum):
             "deals": "deals",
             "contacts": "contacts",
             "companies": "companies",
-            "events": "events",
+            # "events": "events",  # Disabled per requirement 9.5
             "users": "users",
             "pipelines": "pipelines",
             "logs": "logs"
@@ -148,16 +148,16 @@ class EntityTypeRegistry:
             has_custom_fields=True,
             description="Компании из AmoCRM"
         ),
-        "events": EntityTypeInfo(
-            name="events",
-            display_name="events",
-            collection_name="events",
-            api_endpoint="events",
-            supports_export=True,
-            supports_import=False,
-            has_custom_fields=False,
-            description="События из AmoCRM"
-        ),
+        # "events": EntityTypeInfo(  # Disabled per requirement 9.5
+        #     name="events",
+        #     display_name="events",
+        #     collection_name="events",
+        #     api_endpoint="events",
+        #     supports_export=True,
+        #     supports_import=False,
+        #     has_custom_fields=False,
+        #     description="События из AmoCRM"
+        # ),
         "users": EntityTypeInfo(
             name="users",
             display_name="users",
@@ -217,7 +217,7 @@ class EntityTypeValidator(BaseModel):
 
     @field_validator("entity_type")
     @classmethod
-    def validate_entity_type(cls, v):
+    def validate_entity_type(cls, v: str) -> str:
         """Validate entity type"""
         if not v:
             raise ValueError("Entity type cannot be empty")
@@ -250,7 +250,7 @@ class EntityTypeSet(BaseModel):
 
     @field_validator("types")
     @classmethod
-    def validate_types(cls, v):
+    def validate_types(cls, v: List[str]) -> List[str]:
         """Validate all entity types"""
         if not v:
             return v

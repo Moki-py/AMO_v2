@@ -64,7 +64,7 @@ class DataFilterEngine:
 
         # Entity types that should be excluded from export
         self.excluded_entities = {
-            EntityType.EVENTS.value
+            # EntityType.EVENTS.value  # Disabled per requirement 9.5
         }
 
         log_event("data_filter", "info", "DataFilterEngine initialized")

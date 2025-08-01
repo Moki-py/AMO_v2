@@ -231,7 +231,8 @@ class ExportSettingsManager:
                 continue
 
             # Special handling for events: value_after and value_before contain custom_field_value
-            if key in ['value_after', 'value_before'] and isinstance(value, list) and entity_type == EntityType.EVENTS:
+            # Note: Events disabled per requirement 9.5
+            if key in ['value_after', 'value_before'] and isinstance(value, list) and False:  # entity_type == EntityType.EVENTS:
                 for event_value in value:
                     if isinstance(event_value, dict) and 'custom_field_value' in event_value:
                         custom_field_value = event_value['custom_field_value']
@@ -280,7 +281,8 @@ class ExportSettingsManager:
         preview_data = await self._generate_preview_data(field_name, entity_type, sample_docs)
 
         # Generate description with special handling for events
-        if entity_type == EntityType.EVENTS and field_name.startswith('custom_field_'):
+        # Note: Events disabled per requirement 9.5
+        if False and field_name.startswith('custom_field_'):  # entity_type == EntityType.EVENTS
             description = f"Кастомное поле для событий (ID: {custom_id})"
         else:
             description = self._generate_field_description(field_name, field_type, is_custom)
@@ -471,7 +473,8 @@ class ExportSettingsManager:
 
         for doc in sample_docs[:5]:  # Get first 5 examples
             # Special handling for events custom fields
-            if entity_type == EntityType.EVENTS and field_name.startswith('custom_field_'):
+            # Note: Events disabled per requirement 9.5
+            if False and field_name.startswith('custom_field_'):  # entity_type == EntityType.EVENTS
                 field_id = field_name.replace('custom_field_', '')
                 value = self._extract_event_custom_field_value(doc, field_id)
             else:

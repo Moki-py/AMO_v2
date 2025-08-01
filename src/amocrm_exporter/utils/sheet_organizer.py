@@ -367,11 +367,18 @@ class SheetOrganizer:
                 timestamp = timestamp.replace("'", "")
                 timestamp = int(timestamp)
 
+            # Validate timestamp range (2015-2050) - business data should be recent
+            # January 1, 2015 00:00:00 UTC = 1420070400
+            # January 1, 2050 00:00:00 UTC = 2524608000
+            if not (1420070400 <= timestamp <= 2524608000):
+                # Don't log here to avoid spam, just return original value
+                return timestamp
+
             # Convert timestamp to datetime
             dt = datetime.fromtimestamp(int(timestamp))
 
             # Return as Excel/Google Sheets compatible date formula
-            return f'=DATE({dt.year},{dt.month},{dt.day})+TIME({dt.hour},{dt.minute},{dt.second})'
+            return f'=DATE({dt.year};{dt.month};{dt.day})+TIME({dt.hour};{dt.minute};{dt.second})'
 
         except (ValueError, TypeError, OSError):
             # If conversion fails, return the original value

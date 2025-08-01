@@ -10,7 +10,7 @@ import traceback
 
 from .sheets_exporter import SheetsExporter
 from ..utils.progress_tracker import ExportProgressTracker, ExportStatus
-from ..utils.progress_notifier import progress_notifier
+from ..utils.progress_notifier import progress_notifier, ProgressNotification, NotificationLevel
 from ..utils.data_formatter import DataFormatter, ColumnHeaderFormatter
 from ..utils.custom_field_processor import CustomFieldProcessor, CustomFieldMetadataExtractor
 from ..utils.batch_processor import (
@@ -35,10 +35,12 @@ class EnhancedSheetsExporter(SheetsExporter):
     """
 
     def __init__(self, storage: Storage, batch_config: Optional[BatchProcessingConfig] = None,
-                 resource_limits: Optional[ResourceLimits] = None, enable_concurrent_management: bool = True):
+                 resource_limits: Optional[ResourceLimits] = None, enable_concurrent_management: bool = True,
+                 progress_tracker: Optional[ExportProgressTracker] = None):
         """Initialize the enhanced sheets exporter"""
-        super().__init__(storage)
-        self.progress_tracker = ExportProgressTracker(storage)
+        super().__init__(storage, progress_tracker=progress_tracker)
+        # Use provided progress tracker or create a new one
+        self.progress_tracker = progress_tracker or ExportProgressTracker(storage)
 
         # Initialize data formatting components
         self.data_formatter = DataFormatter()
@@ -139,8 +141,8 @@ class EnhancedSheetsExporter(SheetsExporter):
     async def _write_data_to_sheets(self, entities_data: Dict[str, List[Dict[str, Any]]], spreadsheet_ids: Dict[str, str], entity_presets: Dict[str, str]) -> Dict[str, Any]:
         """Write prepared data to Google Sheets"""
         try:
-            # Get credentials and service
-            self._get_credentials()
+            # Get credentials and service with automatic refresh check
+            self._get_credentials_with_refresh_check()
             service = self._build_service()
 
             results = {"success": True, "entity_results": {}}
@@ -402,12 +404,13 @@ class EnhancedSheetsExporter(SheetsExporter):
             self.progress_tracker.complete_export(export_id, success=False, error_message=error_msg)
 
             # Send error notification
-            await progress_notifier.send_notification({
-                "export_id": export_id,
-                "level": "error",
-                "message": f"Export failed: {error_msg}",
-                "details": {"error": error_msg}
-            })
+            notification = ProgressNotification(
+                export_id=export_id,
+                level=NotificationLevel.ERROR,
+                message=f"Export failed: {error_msg}",
+                details={"error": error_msg}
+            )
+            await progress_notifier.send_notification(notification)
 
             # Return error result instead of raising
             return {
@@ -707,10 +710,51 @@ class EnhancedSheetsExporter(SheetsExporter):
                     )
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
 
-    def _build_service(self):
+    def _build_service(self) -> Any:
         """Build Google Sheets service"""
         from googleapiclient.discovery import build
+
+        # Ensure credentials are available
+        if not self.creds:
+            raise Exception(
+                "Google Sheets credentials not available. This usually means:\n"
+                "1. The credentials.json file is missing from the project root\n"
+                "2. The OAuth token has expired and cannot be refreshed\n"
+                "3. The authentication process failed\n\n"
+                "Please check:\n"
+                "- Ensure credentials.json exists in the project root\n"
+                "- Run the authentication setup if needed\n"
+                "- Check the logs for authentication errors"
+            )
+
         return build('sheets', 'v4', credentials=self.creds)
+
+    def _get_credentials_with_refresh_check(self) -> None:
+        """Get credentials with proactive refresh check before use"""
+        # First get credentials normally
+        self._get_credentials()
+
+        # Then check if they need proactive refresh
+        if self.creds and self.creds.valid and self.creds.expiry:
+            from datetime import datetime, timedelta
+            time_until_expiry = self.creds.expiry - datetime.utcnow()
+
+            # If token expires within 10 minutes, refresh it now
+            if time_until_expiry < timedelta(minutes=10):
+                log_event("sheets", "info", f"Token expires in {time_until_expiry}, refreshing before export")
+                if self.creds.refresh_token:
+                    try:
+                        # Use the config manager's enhanced refresh method
+                        refresh_success = self.config_manager._refresh_token_with_retry()
+                        if refresh_success:
+                            self.creds = self.config_manager.creds
+                            log_event("sheets", "info", "Successfully refreshed token before export")
+                        else:
+                            log_event("sheets", "warning", "Token refresh failed, continuing with current token")
+                    except Exception as e:
+                        log_event("sheets", "warning", f"Error during proactive refresh: {e}, continuing with current token")
+                else:
+                    log_event("sheets", "warning", "No refresh token available, cannot refresh proactively")
 
     def _build_date_query(self, date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
         """Build MongoDB query for date filtering"""

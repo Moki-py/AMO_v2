@@ -438,7 +438,7 @@
 
         // Handle WebSocket messages
         function handleWebSocketMessage(data) {
-            if (data.type === 'progress_report') {
+            if (data.type === 'progress_update' || data.type === 'progress_report') {
                 updateExportProgress(data);
             } else if (data.type === 'notification') {
                 addNotification(data);

@@ -115,6 +115,7 @@ class GoogleSheetsConfigManager:
                 errors.append(f"Error reading credentials file: {str(e)}")
 
         # 2. Check spreadsheet ID configurations
+        spreadsheet_ids = {}  # Initialize to avoid potential unbound variable
         try:
             spreadsheet_ids = self._get_spreadsheet_ids()
             for entity_type, env_var in self.required_spreadsheet_configs.items():
@@ -259,7 +260,11 @@ class GoogleSheetsConfigManager:
 
         except HttpError as e:
             error_details = e.error_details[0] if e.error_details else {}
-            reason = error_details.get('reason', 'unknown')
+            # Handle case where error_details might be a string instead of a dict
+            if isinstance(error_details, dict):
+                reason = error_details.get('reason', 'unknown')
+            else:
+                reason = 'unknown'
 
             if e.resp.status == 403:
                 if reason == 'forbidden':
@@ -572,6 +577,20 @@ class GoogleSheetsConfigManager:
         if os.path.exists(self.token_path):
             try:
                 self.creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
+
+                # Proactively refresh token if it's close to expiring (within 5 minutes)
+                if self.creds and self.creds.valid and self.creds.expiry:
+                    from datetime import datetime, timedelta
+                    time_until_expiry = self.creds.expiry - datetime.utcnow()
+                    if time_until_expiry < timedelta(minutes=5):
+                        log_event("sheets_config", "info", f"Token expires in {time_until_expiry}, refreshing proactively")
+                        if self.creds.refresh_token:
+                            refresh_success = self._refresh_token_with_retry()
+                            if not refresh_success:
+                                log_event("sheets_config", "warning", "Proactive refresh failed, token may expire soon")
+                        else:
+                            log_event("sheets_config", "warning", "No refresh token available for proactive refresh")
+
             except Exception as e:
                 log_event("sheets_config", "warning", f"Error loading existing token: {e}")
                 # If token is invalid, delete it
@@ -582,12 +601,10 @@ class GoogleSheetsConfigManager:
         # Refresh or get new credentials
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
-                try:
-                    self.creds.refresh(Request())
-                    log_event("sheets_config", "info", "Successfully refreshed OAuth token")
-                except Exception as e:
-                    log_event("sheets_config", "warning", f"Error refreshing token: {e}")
-                    # If refresh fails, delete the token and start fresh
+                refresh_success = self._refresh_token_with_retry()
+                if not refresh_success:
+                    log_event("sheets_config", "warning", "Token refresh failed after retries, will attempt new OAuth flow")
+                    # If refresh fails completely, delete the token and start fresh
                     if os.path.exists(self.token_path):
                         os.remove(self.token_path)
                     self.creds = None
@@ -607,12 +624,71 @@ class GoogleSheetsConfigManager:
                     )
 
             # Save the credentials for the next run
+            if self.creds:
+                try:
+                    with open(self.token_path, 'w') as token:
+                        token.write(self.creds.to_json())
+                    log_event("sheets_config", "info", "Successfully saved OAuth token")
+                except Exception as e:
+                    log_event("sheets_config", "warning", f"Error saving token: {e}")
+            else:
+                log_event("sheets_config", "warning", "No credentials available to save")
+
+    def _refresh_token_with_retry(self, max_retries: int = 3) -> bool:
+        """
+        Refresh OAuth token with retry logic and enhanced error handling
+
+        Returns:
+            bool: True if refresh succeeded, False if all retries failed
+        """
+        import time
+        from google.auth.exceptions import RefreshError
+
+        for attempt in range(max_retries):
             try:
-                with open(self.token_path, 'w') as token:
-                    token.write(self.creds.to_json())
-                log_event("sheets_config", "info", "Successfully saved OAuth token")
+                log_event("sheets_config", "info", f"Attempting token refresh (attempt {attempt + 1}/{max_retries})")
+
+                # Ensure we have credentials to refresh
+                if not self.creds:
+                    log_event("sheets_config", "error", "No credentials available to refresh")
+                    return False
+
+                # Attempt to refresh the token
+                self.creds.refresh(Request())
+
+                # Validate that the refresh actually worked
+                if self.creds.valid and not self.creds.expired:
+                    log_event("sheets_config", "info", "Successfully refreshed OAuth token")
+
+                    # Save the refreshed token immediately
+                    try:
+                        with open(self.token_path, 'w') as token:
+                            token.write(self.creds.to_json())
+                        log_event("sheets_config", "info", "Successfully saved refreshed OAuth token")
+                    except Exception as save_error:
+                        log_event("sheets_config", "warning", f"Token refreshed but failed to save: {save_error}")
+
+                    return True
+                else:
+                    log_event("sheets_config", "warning", f"Token refresh appeared to succeed but token is still invalid (attempt {attempt + 1})")
+
+            except RefreshError as e:
+                log_event("sheets_config", "warning", f"OAuth refresh error (attempt {attempt + 1}): {e}")
+                if "invalid_grant" in str(e).lower():
+                    log_event("sheets_config", "error", "Refresh token is invalid or expired - need full re-authorization")
+                    return False  # Don't retry for invalid_grant errors
+
             except Exception as e:
-                log_event("sheets_config", "warning", f"Error saving token: {e}")
+                log_event("sheets_config", "warning", f"Unexpected error during token refresh (attempt {attempt + 1}): {e}")
+
+            # Wait before retrying (exponential backoff)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
+                log_event("sheets_config", "info", f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+
+        log_event("sheets_config", "error", f"Token refresh failed after {max_retries} attempts")
+        return False
 
     def get_configuration_summary(self) -> Dict[str, Any]:
         """

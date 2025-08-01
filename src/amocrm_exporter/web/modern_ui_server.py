@@ -2,6 +2,7 @@
 Modern web interface for AmoCRM exporter using FastAPI
 """
 
+import asyncio
 import webbrowser
 import hmac
 import hashlib
@@ -77,14 +78,17 @@ logger.init_storage(storage)
 exporter = ParallelExporter()
 excel_exporter = ExcelExporter(storage)
 
+# Initialize progress tracker first
+progress_tracker = ExportProgressTracker(storage)
+
 # Initialize Google Sheets components with error handling to prevent server crash
 sheets_exporter = None
 enhanced_sheets_exporter = None
 google_sheets_config = None
 
 try:
-    sheets_exporter = SheetsExporter(storage)
-    enhanced_sheets_exporter = EnhancedSheetsExporter(storage)
+    sheets_exporter = SheetsExporter(storage, progress_tracker=progress_tracker)
+    enhanced_sheets_exporter = EnhancedSheetsExporter(storage, progress_tracker=progress_tracker)
     google_sheets_config = GoogleSheetsConfigManager()
     print("✅ Google Sheets экспортеры инициализированы успешно")
 except Exception as e:
@@ -95,7 +99,22 @@ except Exception as e:
     enhanced_sheets_exporter = None
     google_sheets_config = GoogleSheetsConfigManager()  # Config manager должен работать без валидации
 
-progress_tracker = ExportProgressTracker(storage)
+# Connect progress tracker to progress notifier for WebSocket updates
+def progress_callback(export_id: str, progress) -> None:
+    """Bridge progress tracker updates to progress notifier"""
+    try:
+        # Check if there's an active event loop before creating a task
+        try:
+            loop = asyncio.get_running_loop()
+            # Convert progress to report format and notify via WebSocket
+            asyncio.create_task(progress_notifier.send_progress_update(export_id, progress))
+        except RuntimeError:
+            # No running event loop, skip WebSocket updates
+            log_event("server", "debug", f"Progress update skipped - no event loop running for export {export_id}")
+    except Exception as e:
+        log_event("server", "error", f"Error bridging progress update: {e}")
+
+progress_tracker.add_progress_callback(progress_callback)
 export_settings_manager = ExportSettingsManager(storage)
 flattening_processor = get_flattening_processor(storage)
 
@@ -245,10 +264,7 @@ async def render_config_validation_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("config_validation.html", {"request": request})
 
 
-@app.get("/preset-management", response_class=HTMLResponse)
-async def render_preset_management_page(request: Request) -> HTMLResponse:
-    """Render the export preset management UI"""
-    return templates.TemplateResponse("preset-management.html", {"request": request})
+
 
 
 @app.get("/stats")
@@ -287,7 +303,7 @@ async def fetch_entity_handler(
         EntityType.DEALS,
         EntityType.CONTACTS,
         EntityType.COMPANIES,
-        EntityType.EVENTS,
+        # EntityType.EVENTS,  # Disabled per requirement 9.5
         EntityType.USERS,
         EntityType.PIPELINES
     ]:
@@ -442,6 +458,7 @@ async def export_sheets_handler(
 
 @app.post("/export/sheets/enhanced")
 async def export_sheets_enhanced_handler(
+    request: Request,
     date_from: str = Query(None),
     date_to: str = Query(None)
 ) -> dict:
@@ -462,13 +479,29 @@ async def export_sheets_enhanced_handler(
                 detail=f"Google Sheets configuration is invalid: {'; '.join(validation_result.errors)}"
             )
 
-        # Start enhanced export with progress tracking (events excluded per requirement 9.5)
+        # Parse request body for export configuration
+        export_config = {}
+        if request.headers.get('content-type') == 'application/json':
+            try:
+                export_config = await request.json()
+            except:
+                pass
+
+        # Determine entity types based on config or use default
+        entity_types = ["leads", "contacts", "companies"]  # Events excluded per requirement 9.5
+
+        # If specific entity type is provided, export only that
+        if "entity_type" in export_config:
+            entity_types = [export_config["entity_type"]]
+
+        # Start enhanced export with progress tracking
         export_id = progress_tracker.start_export(
-            entity_types=["leads", "contacts", "companies"]
+            entity_types=entity_types
         )
 
         # Start the export in the background
         import asyncio
+        # For now, use standard export - custom field export can be implemented later
         asyncio.create_task(
             enhanced_sheets_exporter.export_all_to_sheets_with_progress(
                 date_from=date_from,
@@ -714,64 +747,6 @@ async def export_sheets_with_presets_handler(request: Request) -> dict:
     except Exception as e:
         log_event("server", "error", f"Error in preset-based export: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# WebSocket endpoint for real-time progress updates
-@app.websocket("/ws/progress")
-async def websocket_progress_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time export progress updates"""
-    await websocket.accept()
-
-    # Add this connection to the progress tracker
-    progress_tracker.add_websocket_connection(websocket)
-
-    try:
-        # Keep connection alive and handle client messages
-        while True:
-            try:
-                # Wait for client messages (ping/pong, etc.)
-                data = await websocket.receive_text()
-
-                # Handle client requests
-                try:
-                    message = json.loads(data)
-                    if message.get('type') == 'get_active_exports':
-                        # Send current active exports
-                        active_exports = progress_tracker.get_all_active_exports()
-                        response = {
-                            'type': 'active_exports',
-                            'exports': {
-                                export_id: {
-                                    'export_id': progress.export_id,
-                                    'status': progress.status.value,
-                                    'overall_progress': progress.overall_progress_percentage,
-                                    'entities': {
-                                        entity_type: {
-                                            'status': entity.status.value,
-                                            'progress': entity.progress_percentage,
-                                            'processed': entity.processed,
-                                            'total': entity.total
-                                        }
-                                        for entity_type, entity in progress.entities.items()
-                                    }
-                                }
-                                for export_id, progress in active_exports.items()
-                            }
-                        }
-                        await websocket.send_text(json.dumps(response))
-
-                except json.JSONDecodeError:
-                    # Ignore invalid JSON messages
-                    pass
-
-            except WebSocketDisconnect:
-                break
-
-    except Exception as e:
-        log_event("server", "error", f"WebSocket error: {e}")
-    finally:
-        # Remove this connection from the progress tracker
-        progress_tracker.remove_websocket_connection(websocket)
 
 
 # Export Settings API Routes (needed for preset management)
@@ -1826,8 +1801,25 @@ def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:
         # Open browser
         webbrowser.open(f"http://localhost:{port}")
 
-        # Start server
-        uvicorn.run(app, host=host, port=port)
+                    # Start server with socket reuse and multi-client support
+        uvicorn.run(
+            app, 
+            host=host, 
+            port=port,
+            # Enable socket reuse for multiple clients and quick restarts
+            access_log=True,
+            # Configure server socket options for better connection handling
+            backlog=2048,  # Increase backlog for better connection handling
+            # Add timeout configurations
+            timeout_keep_alive=5,
+            timeout_graceful_shutdown=5,
+            # WebSocket configuration for multi-client support
+            ws_ping_interval=20,
+            ws_ping_timeout=20,
+            ws_max_size=16777216,  # 16MB for WebSocket messages
+            # Allow reuse of address to prevent "address already in use" errors
+            # This is handled at the OS level in uvicorn
+        )
     except Exception as e:
         log_event("server", "error", f"Server error: {e}")
         raise

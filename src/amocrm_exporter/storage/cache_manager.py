@@ -224,6 +224,77 @@ class CacheManager:
             cleared = self.clear_pattern("pipeline_data|*")
             log_event("cache", "info", f"Очищено {cleared} записей кэша пайплайнов")
 
+    def get_custom_fields(self, entity_type: str) -> Optional[List[Dict[str, Any]]]:
+        """Получение кастомных полей для типа сущности из кэша"""
+        cache_key = self._generate_cache_key("custom_fields", entity_type=entity_type)
+        return self.get(cache_key)
+
+    def set_custom_fields(self, entity_type: str, custom_fields: List[Dict[str, Any]], ttl: Optional[int] = None) -> bool:
+        """Сохранение кастомных полей для типа сущности в кэш"""
+        cache_key = self._generate_cache_key("custom_fields", entity_type=entity_type)
+        # Используем более длинный TTL для кастомных полей, так как они редко изменяются
+        custom_fields_ttl = ttl or (self.default_ttl * 10)  # 10x default TTL
+        return self.set(cache_key, custom_fields, custom_fields_ttl)
+
+    def get_all_custom_fields(self) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        """Получение всех кастомных полей из кэша"""
+        cache_key = self._generate_cache_key("all_custom_fields")
+        return self.get(cache_key)
+
+    def set_all_custom_fields(self, all_custom_fields: Dict[str, List[Dict[str, Any]]], ttl: Optional[int] = None) -> bool:
+        """Сохранение всех кастомных полей в кэш"""
+        cache_key = self._generate_cache_key("all_custom_fields")
+        # Используем более длинный TTL для кастомных полей
+        custom_fields_ttl = ttl or (self.default_ttl * 10)  # 10x default TTL
+        return self.set(cache_key, all_custom_fields, custom_fields_ttl)
+
+    def get_custom_field_metadata(self, field_id: str, entity_type: str) -> Optional[Dict[str, Any]]:
+        """Получение метаданных кастомного поля из кэша"""
+        cache_key = self._generate_cache_key("custom_field_metadata", field_id=field_id, entity_type=entity_type)
+        return self.get(cache_key)
+
+    def set_custom_field_metadata(self, field_id: str, entity_type: str, metadata: Dict[str, Any], ttl: Optional[int] = None) -> bool:
+        """Сохранение метаданных кастомного поля в кэш"""
+        cache_key = self._generate_cache_key("custom_field_metadata", field_id=field_id, entity_type=entity_type)
+        return self.set(cache_key, metadata, ttl)
+
+    def get_custom_fields_mapping(self, entity_type: str) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Получение маппинга кастомных полей (field_id -> field_info) из кэша"""
+        cache_key = self._generate_cache_key("custom_fields_mapping", entity_type=entity_type)
+        return self.get(cache_key)
+
+    def set_custom_fields_mapping(self, entity_type: str, mapping: Dict[str, Dict[str, Any]], ttl: Optional[int] = None) -> bool:
+        """Сохранение маппинга кастомных полей в кэш"""
+        cache_key = self._generate_cache_key("custom_fields_mapping", entity_type=entity_type)
+        # Используем более длинный TTL для маппинга кастомных полей
+        mapping_ttl = ttl or (self.default_ttl * 10)  # 10x default TTL
+        return self.set(cache_key, mapping, mapping_ttl)
+
+    def invalidate_custom_fields_cache(self, entity_type: Optional[str] = None) -> None:
+        """Инвалидация кэша кастомных полей"""
+        if entity_type:
+            # Очистка кэша для конкретного типа сущности
+            patterns = [
+                f"custom_fields|entity_type:{entity_type}|*",
+                f"custom_fields_mapping|entity_type:{entity_type}|*",
+                f"custom_field_metadata|*|entity_type:{entity_type}|*",
+            ]
+        else:
+            # Очистка всего кэша кастомных полей
+            patterns = [
+                "custom_fields|*",
+                "all_custom_fields|*",
+                "custom_fields_mapping|*",
+                "custom_field_metadata|*",
+            ]
+
+        total_cleared = 0
+        for pattern in patterns:
+            cleared = self.clear_pattern(pattern)
+            total_cleared += cleared
+
+        log_event("cache", "info", f"Очищено {total_cleared} записей кэша кастомных полей" + (f" для {entity_type}" if entity_type else ""))
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """Получение статистики кэша"""
         if not self.is_connected:

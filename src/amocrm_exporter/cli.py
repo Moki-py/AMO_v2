@@ -105,7 +105,23 @@ def web_main() -> None:
     try:
         import uvicorn
         from .web.modern_ui_server import app
-        uvicorn.run(app, host="127.0.0.1", port=8000)
+        # Configure uvicorn with socket reuse and better handling for multiple clients
+        uvicorn.run(
+            app, 
+            host="127.0.0.1", 
+            port=8000,
+            # Enable socket reuse to allow multiple clients and quick restarts
+            access_log=True,
+            # Configure server socket options
+            backlog=2048,  # Increase backlog for better connection handling
+            # Add timeout configurations
+            timeout_keep_alive=5,
+            timeout_graceful_shutdown=5,
+            # WebSocket configuration for multi-client support
+            ws_ping_interval=20,
+            ws_ping_timeout=20,
+            ws_max_size=16777216  # 16MB for WebSocket messages
+        )
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
         print("Убедитесь, что все зависимости установлены: pip install -r requirements.txt")

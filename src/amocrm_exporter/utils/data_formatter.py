@@ -51,6 +51,10 @@ class DataFormatter:
             if value is None or value == '':
                 return ''
 
+            # Check if the value is already a Google Sheets formula - don't reprocess
+            if isinstance(value, str) and value.startswith('=') and ('DATE(' in value or 'TIME(' in value or 'SUM(' in value):
+                return value
+
             # Handle complex data structures
             if isinstance(value, (list, dict)):
                 return self._format_complex_value(value)
@@ -140,16 +144,28 @@ class DataFormatter:
             # Convert to integer if it's a string
             if isinstance(timestamp, str):
                 timestamp = timestamp.replace("'", "").strip()
+
+                # Check if it's already a Google Sheets formula - don't reprocess
+                if timestamp.startswith('=') and ('DATE(' in timestamp or 'TIME(' in timestamp):
+                    return timestamp
+
                 timestamp = int(float(timestamp))
+
+            # Validate timestamp range (2015-2050) - business data should be recent
+            # January 1, 2015 00:00:00 UTC = 1420070400
+            # January 1, 2050 00:00:00 UTC = 2524608000
+            if not (1420070400 <= timestamp <= 2524608000):
+                log_event("formatter", "warning", f"Timestamp out of business range (should be 2015+): {timestamp}")
+                return str(timestamp)
 
             # Convert timestamp to datetime
             dt = datetime.fromtimestamp(timestamp)
 
             # Return Google Sheets date formula
             if format_type == 'date':
-                return f'=DATE({dt.year},{dt.month},{dt.day})'
+                return f'=DATE({dt.year};{dt.month};{dt.day})'
             else:  # datetime
-                return f'=DATE({dt.year},{dt.month},{dt.day})+TIME({dt.hour},{dt.minute},{dt.second})'
+                return f'=DATE({dt.year};{dt.month};{dt.day})+TIME({dt.hour};{dt.minute};{dt.second})'
 
         except (ValueError, TypeError, OSError) as e:
             log_event("formatter", "warning", f"Timestamp formatting failed: {e}")
@@ -177,9 +193,9 @@ class DataFormatter:
 
             if parsed_date:
                 if format_type == 'date':
-                    return f'=DATE({parsed_date.year},{parsed_date.month},{parsed_date.day})'
+                    return f'=DATE({parsed_date.year};{parsed_date.month};{parsed_date.day})'
                 else:
-                    return f'=DATE({parsed_date.year},{parsed_date.month},{parsed_date.day})+TIME({parsed_date.hour},{parsed_date.minute},{parsed_date.second})'
+                    return f'=DATE({parsed_date.year};{parsed_date.month};{parsed_date.day})+TIME({parsed_date.hour};{parsed_date.minute};{parsed_date.second})'
             else:
                 return date_str
 
@@ -195,7 +211,17 @@ class DataFormatter:
                 return ''
 
             # Convert to string and clean
-            str_value = str(value).strip().replace(',', '.')
+            str_value = str(value).strip()
+
+            # Check if it's already a Google Sheets formula - don't reprocess
+            if str_value.startswith('=') and ('DATE(' in str_value or 'TIME(' in str_value):
+                return str_value
+
+            str_value = str_value.replace(',', '.')
+
+            # Handle boolean strings by converting to numeric values
+            if str_value.lower() in ('true', 'false'):
+                return 1 if str_value.lower() == 'true' else 0
 
             # Try to parse as Decimal for precision
             try:
@@ -314,8 +340,10 @@ class DataFormatter:
         """Check if value is a Unix timestamp"""
         try:
             num_value = float(value)
-            # Check if it's in reasonable timestamp range (1970-2050)
-            return 0 < num_value < 2524608000
+            # Check if it's in reasonable timestamp range (2015-2050) for business data
+            # January 1, 2015 00:00:00 UTC = 1420070400
+            # January 1, 2050 00:00:00 UTC = 2524608000
+            return 1420070400 <= num_value <= 2524608000
         except (ValueError, TypeError):
             return False
 

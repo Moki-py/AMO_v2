@@ -17,7 +17,7 @@ import pymongo
 class StateManager:
     """Manages the state of exports to enable resume functionality using MongoDB"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the state manager with MongoDB connection"""
         # Keep state_file for backward compatibility
         self.state_file = config.settings.state_file
@@ -66,7 +66,7 @@ class StateManager:
         # Track last checkpoint time for time-based saves
         self.last_checkpoint_time = datetime.now()
 
-    def _ensure_exported_ids_indexes(self):
+    def _ensure_exported_ids_indexes(self) -> None:
         """Ensure indexes exist for exported_ids collection"""
         try:
             # Create index on entity_type for fast lookups
@@ -79,7 +79,7 @@ class StateManager:
         except PyMongoError as e:
             log_event("state", "error", f"Error creating exported_ids indexes: {e}")
 
-    def _ensure_state(self):
+    def _ensure_state(self) -> None:
         """Ensure state document exists in MongoDB"""
         # Check if state document exists
         if self.state_collection.count_documents({"_id": "state"}) == 0:
@@ -130,7 +130,7 @@ class StateManager:
     def _load_state(self) -> dict[str, Any]:
         """Load the export state from MongoDB"""
         try:
-            state_doc = self.state_collection.find_one({"_id": "state"})
+            state_doc: dict[str, Any] | None = self.state_collection.find_one({"_id": "state"})
             if state_doc:
                 # Remove MongoDB _id field before returning
                 if "_id" in state_doc:
@@ -170,7 +170,7 @@ class StateManager:
             "global": {"last_full_sync": None, "running_exports": []},
         }
 
-    def save_state(self):
+    def save_state(self) -> None:
         """Save the current state to MongoDB"""
         try:
             # Create a copy of state with _id for MongoDB
@@ -200,7 +200,7 @@ class StateManager:
             log_event("state", "debug", f"Error checking transaction support: {e}")
             return False
 
-    def save_state_atomic(self, exported_ids_updates: Optional[Dict[str, List[int]]] = None):
+    def save_state_atomic(self, exported_ids_updates: Optional[Dict[str, List[int]]] = None) -> bool:
         """
         Atomically save state and exported IDs using MongoDB transactions when supported
 

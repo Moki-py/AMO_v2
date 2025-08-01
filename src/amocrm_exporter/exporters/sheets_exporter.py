@@ -23,7 +23,7 @@ from ..core.google_sheets_config import GoogleSheetsConfigManager
 from ..utils.data_formatter import DataFormatter, ColumnHeaderFormatter
 from ..utils.custom_field_processor import CustomFieldProcessor, CustomFieldMetadataExtractor
 from ..utils.progress_tracker import ExportProgressTracker, ExportStatus
-from ..utils.progress_notifier import progress_notifier
+from ..utils.progress_notifier import progress_notifier, ProgressNotification, NotificationLevel
 from ..utils.error_handler import GoogleSheetsErrorHandler
 from ..utils.retry_logic import RetryConfiguration, ExponentialBackoffRetry
 from ..web.export_presets import ExportPresetManager, ExportPreset
@@ -37,7 +37,7 @@ MAX_ROWS_PER_BATCH = 5000  # Increased from 1000 to 5000
 class SheetsExporter:
     """Exports data from MongoDB to Google Sheets with enhanced functionality"""
 
-    def __init__(self, storage: Storage):
+    def __init__(self, storage: Storage, progress_tracker: Optional[ExportProgressTracker] = None):
         """Initialize the Google Sheets exporter with enhanced features"""
         self.storage = storage
         self.config_manager = GoogleSheetsConfigManager()
@@ -51,8 +51,8 @@ class SheetsExporter:
         self.custom_field_processor = CustomFieldProcessor()
         self.field_metadata_extractor = CustomFieldMetadataExtractor()
 
-        # Initialize progress tracking system
-        self.progress_tracker = ExportProgressTracker(storage)
+        # Initialize progress tracking system - use provided tracker or create new one
+        self.progress_tracker = progress_tracker or ExportProgressTracker(storage)
         self.progress_tracker.add_progress_callback(self._on_progress_update)
 
         # Initialize error handling system
@@ -123,7 +123,7 @@ class SheetsExporter:
             ).execute()
 
         try:
-            await self.retry_handler.execute_with_retry(
+            self.retry_handler.execute_with_retry(
                 write_operation
             )
         except Exception as e:
@@ -317,12 +317,13 @@ class SheetsExporter:
             self.progress_tracker.complete_export(export_id, success=False, error_message=error_info.user_message)
 
             # Send error notification
-            await progress_notifier.send_notification({
-                "export_id": export_id,
-                "level": "error",
-                "message": f"Export failed: {error_info.user_message}",
-                "details": {"error": error_info.user_message, "suggested_actions": error_info.suggested_actions}
-            })
+            notification = ProgressNotification(
+                export_id=export_id,
+                level=NotificationLevel.ERROR,
+                message=f"Export failed: {error_info.user_message}",
+                details={"error": error_info.user_message, "suggested_actions": error_info.suggested_actions}
+            )
+            await progress_notifier.send_notification(notification)
 
             raise
 
@@ -552,6 +553,13 @@ class SheetsExporter:
                 timestamp = timestamp.replace("'", "")
                 timestamp = int(timestamp)
 
+            # Validate timestamp range (2015-2050) - business data should be recent
+            # January 1, 2015 00:00:00 UTC = 1420070400
+            # January 1, 2050 00:00:00 UTC = 2524608000
+            if not (1420070400 <= timestamp <= 2524608000):
+                log_event("sheets", "warning", f"Timestamp out of business range (should be 2015+): {timestamp}")
+                return timestamp
+
             # Convert timestamp to datetime
             dt = datetime.fromtimestamp(timestamp)
 
@@ -570,24 +578,22 @@ class SheetsExporter:
             # Try to get existing event loop
             loop = asyncio.get_running_loop()
             # If we're in an async context, just call the config manager directly
-            return self.config_manager._get_credentials()
+            self.config_manager._get_credentials()
+            self.creds = self.config_manager.creds
+            return self.creds
         except RuntimeError:
             # No running loop, so we can use asyncio.run()
             return asyncio.run(self._get_credentials_with_retry())
 
     async def _get_credentials_with_retry(self):
         """Get or refresh Google API credentials with enhanced error handling and retry logic"""
-        async def get_creds_operation():
+        def get_creds_operation():
             self.config_manager._get_credentials()
             self.creds = self.config_manager.creds
             return self.creds
 
         try:
-            await self.retry_handler.execute_with_retry(
-                operation=get_creds_operation,
-                operation_name="get_credentials",
-                max_retries=3
-            )
+            self.retry_handler.execute_with_retry(get_creds_operation)
         except Exception as e:
             context = create_error_context(component="sheets_exporter", operation="authentication")
             error_info = self.error_handler.handle_error(e, context)

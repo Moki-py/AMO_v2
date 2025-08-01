@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Настройки экспорта данных - AmoCRM</title>
+    <title>Настройки экспорта и управление пресетами - AmoCRM</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
@@ -467,12 +467,280 @@
             margin-left: 12px;
             color: var(--gray);
         }
+
+        /* Preset Management Styles */
+        .preset-card {
+            background: var(--white);
+            border: 1px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow);
+            transition: all var(--animation-speed);
+        }
+
+        .preset-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+
+        .preset-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .preset-title {
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 1.1rem;
+            margin-bottom: 4px;
+        }
+
+        .preset-entity-badge {
+            background: var(--primary);
+            color: var(--white);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .preset-description {
+            color: var(--gray);
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .preset-stats {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 12px;
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        .preset-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: var(--white);
+        }
+
+        .btn-success:hover {
+            background: var(--success-hover);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: var(--white);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: var(--white);
+        }
+
+        .current-preset-indicator {
+            background: var(--success);
+            color: var(--white);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            margin-left: 8px;
+        }
+
+        .preset-fields-preview {
+            font-size: 0.8rem;
+            color: var(--gray);
+            font-style: italic;
+            margin-top: 8px;
+            max-height: 60px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .preset-fields-preview:after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 30px;
+            height: 20px;
+            background: linear-gradient(to right, transparent, var(--white));
+        }
+
+        /* Export Progress Styles */
+        .export-card {
+            background: var(--white);
+            border: 1px solid #e5e7eb;
+            border-radius: var(--border-radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            transition: all var(--animation-speed);
+        }
+
+        .export-card:hover {
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .export-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .export-id {
+            font-family: 'Courier New', monospace;
+            background: var(--light-gray);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        .export-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-starting { background: #dbeafe; color: #1e40af; }
+        .status-in_progress { background: #dbeafe; color: #1e40af; }
+        .status-completed { background: #d1fae5; color: #065f46; }
+        .status-failed { background: #fee2e2; color: #991b1b; }
+        .status-cancelled { background: #f3f4f6; color: #374151; }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), var(--success-hover));
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 0.9rem;
+            color: var(--gray);
+            margin-top: 5px;
+        }
+
+        .entities-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .entity-card {
+            background: var(--light-gray);
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .entity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .entity-name {
+            font-weight: 600;
+            color: var(--dark);
+            text-transform: capitalize;
+        }
+
+        .entity-progress {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        .export-results {
+            background: var(--primary-light);
+            border-radius: var(--border-radius);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .result-links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .result-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--primary);
+            color: var(--white);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: all var(--animation-speed);
+        }
+
+        .result-link:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .connection-indicator {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            transition: all var(--animation-speed);
+        }
+
+        .connection-indicator.connected {
+            background: var(--success);
+            color: var(--white);
+        }
+
+        .connection-indicator.disconnected {
+            background: var(--danger);
+            color: var(--white);
+        }
+
+        .connection-indicator.connecting {
+            background: var(--warning);
+            color: var(--white);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-cog"></i>Настройки экспорта данных</h1>
+            <h1><i class="fas fa-cog"></i>Настройки экспорта и управление пресетами</h1>
             <a href="/" class="back-btn">
                 <i class="fas fa-arrow-left"></i>
                 Назад к дашборду
@@ -571,33 +839,99 @@
             </div>
         </div>
 
-        <!-- Save Settings Panel -->
+        <!-- Preset Management Panel -->
         <div class="save-panel">
-            <div class="form-group">
-                <label class="form-label">Название настройки</label>
-                <input type="text" class="form-input" id="settings-name" placeholder="Например: Экспорт для отчета">
+            <h3 style="margin-bottom: 20px; color: var(--dark); display: flex; align-items: center; gap: 8px;">
+                <i class="fas fa-layer-group"></i>
+                Управление пресетами
+            </h3>
+
+            <!-- Preset Load Section -->
+            <div style="margin-bottom: 24px; padding: 16px; background: var(--light-gray); border-radius: var(--border-radius);">
+                <div class="form-group">
+                    <label class="form-label">Загрузить существующий пресет</label>
+                    <div style="display: flex; gap: 8px; align-items: end;">
+                        <div style="flex: 1;">
+                            <select class="form-input" id="preset-selector" onchange="onPresetSelected()">
+                                <option value="">Выберите пресет...</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-secondary" onclick="loadSelectedPreset()">
+                            <i class="fas fa-folder-open"></i>
+                            Загрузить
+                        </button>
+                        <button class="btn btn-secondary" onclick="refreshPresets()">
+                            <i class="fas fa-refresh"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label class="form-label">Описание (опционально)</label>
-                <textarea class="form-textarea" id="settings-description" placeholder="Краткое описание настройки экспорта"></textarea>
+
+            <!-- Preset Save Section -->
+            <div style="margin-bottom: 24px; padding: 16px; background: var(--primary-light); border-radius: var(--border-radius);">
+                <div class="form-group">
+                    <label class="form-label">Сохранить как новый пресет</label>
+                    <input type="text" class="form-input" id="preset-name" placeholder="Название пресета (например: Базовые поля сделок)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Описание пресета (опционально)</label>
+                    <textarea class="form-textarea" id="preset-description" placeholder="Краткое описание пресета"></textarea>
+                </div>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="saveAsPreset()">
+                        <i class="fas fa-layer-group"></i>
+                        Сохранить как пресет
+                    </button>
+                    <button class="btn btn-secondary" id="update-preset-btn" onclick="updateExistingPreset()" style="display: none;">
+                        <i class="fas fa-edit"></i>
+                        Обновить пресет
+                    </button>
+                </div>
             </div>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="saveSettings()">
-                    <i class="fas fa-save"></i>
-                    Сохранить настройки
-                </button>
-                <button class="btn btn-secondary" onclick="loadSettings()">
-                    <i class="fas fa-folder-open"></i>
-                    Загрузить настройки
-                </button>
-                <button class="btn btn-secondary" onclick="exportData()">
-                    <i class="fas fa-download"></i>
-                    Экспортировать данные
-                </button>
-                <button class="btn btn-secondary" onclick="syncFlattenedData()">
-                    <i class="fas fa-sync"></i>
-                    Синхронизировать данные
-                </button>
+
+            <!-- Current Presets Display -->
+            <div id="presets-list" style="margin-bottom: 20px;">
+                <!-- Will be populated dynamically -->
+            </div>
+
+            <!-- Export Actions -->
+            <div style="border-top: 1px solid #e5e7eb; padding-top: 20px;">
+                <h4 style="margin-bottom: 12px; color: var(--dark);">Действия экспорта</h4>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="exportWithCurrentSettings()">
+                        <i class="fas fa-download"></i>
+                        Экспорт с текущими настройками
+                    </button>
+                    <button class="btn btn-success" onclick="exportWithSelectedPreset()">
+                        <i class="fas fa-layer-group"></i>
+                        Экспорт с выбранным пресетом
+                    </button>
+                    <button class="btn btn-secondary" onclick="syncFlattenedData()">
+                        <i class="fas fa-sync"></i>
+                        Синхронизировать данные
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Progress Section -->
+        <div class="save-panel" id="progress-section" style="display: none;">
+            <h3 style="margin-bottom: 20px; color: var(--dark); display: flex; align-items: center; gap: 8px;">
+                <i class="fas fa-chart-line"></i>
+                Прогресс экспорта
+                <div id="connection-status" style="margin-left: auto; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; background: var(--danger); color: white;">
+                    Не подключен
+                </div>
+            </h3>
+
+            <!-- Active Exports -->
+            <div id="active-exports-container">
+                <!-- Will be populated by JavaScript -->
+            </div>
+
+            <!-- Export Results -->
+            <div id="export-results-container" style="margin-top: 20px;">
+                <!-- Will show completed export results -->
             </div>
         </div>
     </div>
@@ -611,6 +945,15 @@
         let selectedFields = [];
         let fieldsCache = {};
         let previewCache = {};
+        let presets = [];
+        let currentPresetId = null;
+
+        // Progress tracking variables
+        let websocket = null;
+        let activeExports = {};
+        let completedExports = {};
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
 
         // Initialize the interface
         document.addEventListener('DOMContentLoaded', function() {
@@ -618,6 +961,9 @@
             setupDragAndDrop();
             setupSearch();
             loadFieldsForEntity(currentEntity);
+            loadPresets();
+            connectWebSocket();
+            loadActiveExports();
         });
 
         // Tab functionality
@@ -641,9 +987,12 @@
 
             currentEntity = entity;
             selectedFields = [];
+            currentPresetId = null;
             updateSelectedFieldsDisplay();
             updatePreview();
+            updatePresetInterface();
             loadFieldsForEntity(entity);
+            loadPresets();
         }
 
         // Load fields for entity
@@ -995,11 +1344,165 @@
             }
         }
 
-        // Settings management
-        async function saveSettings() {
-            const name = document.getElementById('settings-name').value.trim();
+        // Preset management functions
+        async function loadPresets() {
+            try {
+                const response = await fetch(`/api/presets?entity_type=${currentEntity}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                presets = data.presets || [];
+                updatePresetSelector();
+                updatePresetsList();
+
+            } catch (error) {
+                console.error('Error loading presets:', error);
+                showNotification('Ошибка загрузки пресетов: ' + error.message, 'error');
+            }
+        }
+
+        function updatePresetSelector() {
+            const selector = document.getElementById('preset-selector');
+
+            selector.innerHTML = '<option value="">Выберите пресет...</option>';
+
+            presets.forEach(preset => {
+                const option = document.createElement('option');
+                option.value = preset.preset_id;
+                option.textContent = `${preset.name} (${preset.selected_fields.length} полей)`;
+                if (preset.preset_id === currentPresetId) {
+                    option.selected = true;
+                }
+                selector.appendChild(option);
+            });
+        }
+
+        function updatePresetsList() {
+            const container = document.getElementById('presets-list');
+
+            if (presets.length === 0) {
+                container.innerHTML = '<p style="color: var(--gray); text-align: center; padding: 20px;">Нет пресетов для данного типа сущности</p>';
+                return;
+            }
+
+            container.innerHTML = presets.map(preset => createPresetCard(preset)).join('');
+        }
+
+        function createPresetCard(preset) {
+            const isCurrentPreset = preset.preset_id === currentPresetId;
+            const createdDate = new Date(preset.created_at).toLocaleDateString();
+            const fieldsPreview = preset.selected_fields.slice(0, 3).join(', ') +
+                                 (preset.selected_fields.length > 3 ? '...' : '');
+
+            return `
+                <div class="preset-card">
+                    <div class="preset-header">
+                        <div>
+                            <div class="preset-title">
+                                ${preset.name}
+                                ${isCurrentPreset ? '<span class="current-preset-indicator">Текущий</span>' : ''}
+                            </div>
+                            <div class="preset-entity-badge">${preset.entity_type}</div>
+                        </div>
+                    </div>
+
+                    ${preset.description ? `<div class="preset-description">${preset.description}</div>` : ''}
+
+                    <div class="preset-stats">
+                        <span><i class="fas fa-list"></i> ${preset.selected_fields.length} полей</span>
+                        <span><i class="fas fa-calendar"></i> ${createdDate}</span>
+                    </div>
+
+                    <div class="preset-fields-preview">
+                        Поля: ${fieldsPreview}
+                    </div>
+
+                    <div class="preset-actions">
+                        <button class="btn btn-primary btn-sm" onclick="loadPreset('${preset.preset_id}')">
+                            <i class="fas fa-folder-open"></i> Загрузить
+                        </button>
+                        <button class="btn btn-success btn-sm" onclick="exportWithPreset('${preset.preset_id}')">
+                            <i class="fas fa-download"></i> Экспорт
+                        </button>
+                        <button class="btn btn-warning btn-sm" onclick="editPreset('${preset.preset_id}')">
+                            <i class="fas fa-edit"></i> Изменить
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="duplicatePreset('${preset.preset_id}')">
+                            <i class="fas fa-copy"></i> Копировать
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="deletePreset('${preset.preset_id}')">
+                            <i class="fas fa-trash"></i> Удалить
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function onPresetSelected() {
+            const selectedPresetId = document.getElementById('preset-selector').value;
+            // Just update UI to show selection, don't load automatically
+        }
+
+        async function loadSelectedPreset() {
+            const selectedPresetId = document.getElementById('preset-selector').value;
+            if (!selectedPresetId) {
+                showNotification('Выберите пресет для загрузки', 'error');
+                return;
+            }
+
+            await loadPreset(selectedPresetId);
+        }
+
+        async function loadPreset(presetId) {
+            try {
+                const response = await fetch(`/api/presets/${presetId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const preset = data.preset;
+
+                // Switch to the preset's entity type if different
+                if (preset.entity_type !== currentEntity) {
+                    switchToEntity(preset.entity_type);
+                    // Wait for fields to load
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                // Set selected fields based on preset
+                selectedFields = availableFields.filter(field =>
+                    preset.selected_fields.includes(field.field_id)
+                );
+
+                // Reorder fields according to preset field_order
+                if (preset.field_order && preset.field_order.length > 0) {
+                    selectedFields.sort((a, b) => {
+                        const indexA = preset.field_order.indexOf(a.field_id);
+                        const indexB = preset.field_order.indexOf(b.field_id);
+                        return indexA - indexB;
+                    });
+                }
+
+                currentPresetId = presetId;
+                updateSelectedFieldsDisplay();
+                updatePreview();
+                updatePresetInterface();
+
+                showNotification(`Пресет "${preset.name}" загружен!`, 'success');
+
+            } catch (error) {
+                console.error('Error loading preset:', error);
+                showNotification('Ошибка загрузки пресета: ' + error.message, 'error');
+            }
+        }
+
+        async function saveAsPreset() {
+            const name = document.getElementById('preset-name').value.trim();
             if (!name) {
-                showNotification('Введите название настройки', 'error');
+                showNotification('Введите название пресета', 'error');
                 return;
             }
 
@@ -1009,96 +1512,317 @@
             }
 
             try {
-                const settingsData = {
+                const presetData = {
+                    name: name,
                     entity_type: currentEntity,
+                    description: document.getElementById('preset-description').value.trim() || '',
                     selected_fields: selectedFields.map(f => f.field_id),
                     field_order: selectedFields.map(f => f.field_id),
-                    filters: {},
-                    name: name,
-                    description: document.getElementById('settings-description').value.trim() || null
+                    custom_field_mappings: {}
                 };
 
-                const response = await fetch('/api/export-settings', {
+                const response = await fetch('/api/presets', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(settingsData)
+                    body: JSON.stringify(presetData)
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create preset');
                 }
 
                 const result = await response.json();
-                showNotification('Настройки успешно сохранены!', 'success');
+                currentPresetId = result.preset_id;
 
                 // Clear form
-                document.getElementById('settings-name').value = '';
-                document.getElementById('settings-description').value = '';
+                document.getElementById('preset-name').value = '';
+                document.getElementById('preset-description').value = '';
+
+                showNotification('Пресет успешно сохранен!', 'success');
+                await loadPresets();
 
             } catch (error) {
-                console.error('Error saving settings:', error);
-                showNotification('Ошибка сохранения настроек: ' + error.message, 'error');
+                console.error('Error saving preset:', error);
+                showNotification('Ошибка сохранения пресета: ' + error.message, 'error');
             }
         }
 
-        async function loadSettings() {
+        async function updateExistingPreset() {
+            if (!currentPresetId) {
+                showNotification('Не выбран пресет для обновления', 'error');
+                return;
+            }
+
+            if (selectedFields.length === 0) {
+                showNotification('Выберите хотя бы одно поле', 'error');
+                return;
+            }
+
             try {
-                const response = await fetch('/api/export-settings');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-
-                if (data.settings.length === 0) {
-                    showNotification('Нет сохраненных настроек', 'error');
+                const currentPreset = presets.find(p => p.preset_id === currentPresetId);
+                if (!currentPreset) {
+                    showNotification('Пресет не найден', 'error');
                     return;
                 }
 
-                // Simple implementation - load the first setting
-                // In a real implementation, you'd show a modal with all settings
-                const settings = data.settings[0];
+                const presetData = {
+                    ...currentPreset,
+                    selected_fields: selectedFields.map(f => f.field_id),
+                    field_order: selectedFields.map(f => f.field_id)
+                };
 
-                // Switch to the entity
-                switchToEntity(settings.entity_type);
+                const response = await fetch(`/api/presets/${currentPresetId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(presetData)
+                });
 
-                // Wait for fields to load, then select them
-                setTimeout(() => {
-                    selectedFields = availableFields.filter(field =>
-                        settings.selected_fields.includes(field.field_id)
-                    );
-                    updateSelectedFieldsDisplay();
-                    updatePreview();
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to update preset');
+                }
 
-                    document.getElementById('settings-name').value = settings.name;
-                    document.getElementById('settings-description').value = settings.description || '';
-
-                    showNotification('Настройки загружены!', 'success');
-                }, 1000);
+                showNotification('Пресет успешно обновлен!', 'success');
+                await loadPresets();
 
             } catch (error) {
-                console.error('Error loading settings:', error);
-                showNotification('Ошибка загрузки настроек: ' + error.message, 'error');
+                console.error('Error updating preset:', error);
+                showNotification('Ошибка обновления пресета: ' + error.message, 'error');
             }
         }
+
+        async function editPreset(presetId) {
+            const preset = presets.find(p => p.preset_id === presetId);
+            if (!preset) {
+                showNotification('Пресет не найден', 'error');
+                return;
+            }
+
+            // Load the preset first
+            await loadPreset(presetId);
+
+            // Fill the form with preset data for editing
+            document.getElementById('preset-name').value = preset.name;
+            document.getElementById('preset-description').value = preset.description || '';
+
+            showNotification('Пресет загружен для редактирования. Измените поля и нажмите "Обновить пресет".', 'info');
+        }
+
+        async function duplicatePreset(presetId) {
+            const preset = presets.find(p => p.preset_id === presetId);
+            if (!preset) {
+                showNotification('Пресет не найден', 'error');
+                return;
+            }
+
+            const newName = prompt(`Введите название для копии пресета "${preset.name}":`, `${preset.name} (копия)`);
+            if (!newName) return;
+
+            try {
+                const response = await fetch(`/api/presets/${presetId}/duplicate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: newName })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to duplicate preset');
+                }
+
+                showNotification('Пресет успешно скопирован!', 'success');
+                await loadPresets();
+
+            } catch (error) {
+                console.error('Error duplicating preset:', error);
+                showNotification('Ошибка копирования пресета: ' + error.message, 'error');
+            }
+        }
+
+        async function deletePreset(presetId) {
+            const preset = presets.find(p => p.preset_id === presetId);
+            if (!preset) return;
+
+            if (!confirm(`Вы уверены, что хотите удалить пресет "${preset.name}"? Это действие нельзя отменить.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/presets/${presetId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete preset');
+                }
+
+                if (currentPresetId === presetId) {
+                    currentPresetId = null;
+                }
+
+                showNotification('Пресет успешно удален!', 'success');
+                await loadPresets();
+
+            } catch (error) {
+                console.error('Error deleting preset:', error);
+                showNotification('Ошибка удаления пресета: ' + error.message, 'error');
+            }
+        }
+
+        async function refreshPresets() {
+            await loadPresets();
+            showNotification('Список пресетов обновлен', 'info');
+        }
+
+        async function exportWithPreset(presetId) {
+            try {
+                // Show progress section
+                document.getElementById('progress-section').style.display = 'block';
+
+                // Start export with preset
+                const response = await fetch('/export/sheets/with-presets', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        preset_ids: {
+                            [currentEntity]: presetId
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start preset export');
+                }
+
+                const data = await response.json();
+                showNotification('Экспорт с пресетом завершен!', 'success');
+
+                // Show results
+                displayExportResults(data.urls, `Результаты экспорта с пресетом (ID: ${presetId})`);
+
+                // Scroll to progress section
+                document.getElementById('progress-section').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error('Error starting preset export:', error);
+                showNotification('Ошибка экспорта с пресетом: ' + error.message, 'error');
+            }
+        }
+
+        function updatePresetInterface() {
+            updatePresetSelector();
+            updatePresetsList();
+
+            // Show/hide update button based on whether a preset is loaded
+            const updateBtn = document.getElementById('update-preset-btn');
+            if (currentPresetId) {
+                updateBtn.style.display = 'inline-flex';
+            } else {
+                updateBtn.style.display = 'none';
+            }
+        }
+
+        // Export functions
+        async function exportWithCurrentSettings() {
+            if (selectedFields.length === 0) {
+                showNotification('Выберите поля для экспорта', 'error');
+                return;
+            }
+
+            try {
+                // Show progress section
+                document.getElementById('progress-section').style.display = 'block';
+
+                // Start enhanced export
+                const response = await fetch('/export/sheets/enhanced', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        entity_type: currentEntity,
+                        selected_fields: selectedFields.map(f => f.field_id),
+                        field_order: selectedFields.map(f => f.field_id)
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start export');
+                }
+
+                const data = await response.json();
+                showNotification(`Экспорт запущен! ID: ${data.export_id}`, 'success');
+
+                // Scroll to progress section
+                document.getElementById('progress-section').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error('Error starting export:', error);
+                showNotification('Ошибка запуска экспорта: ' + error.message, 'error');
+            }
+        }
+
+        async function exportWithSelectedPreset() {
+            const selectedPresetId = document.getElementById('preset-selector').value;
+            if (!selectedPresetId) {
+                showNotification('Выберите пресет для экспорта', 'error');
+                return;
+            }
+
+            try {
+                // Show progress section
+                document.getElementById('progress-section').style.display = 'block';
+
+                // Start export with preset
+                const response = await fetch('/export/sheets/with-presets', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        preset_ids: {
+                            [currentEntity]: selectedPresetId
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start preset export');
+                }
+
+                const data = await response.json();
+                showNotification('Экспорт с пресетом завершен!', 'success');
+
+                // Show results
+                displayExportResults(data.urls, 'Результаты экспорта с пресетом');
+
+            } catch (error) {
+                console.error('Error starting preset export:', error);
+                showNotification('Ошибка экспорта с пресетом: ' + error.message, 'error');
+            }
+        }
+
+
 
         // Utility functions
         function refreshFields() {
             loadFieldsForEntity(currentEntity, true);
         }
 
-        function exportData() {
-            if (selectedFields.length === 0) {
-                showNotification('Выберите поля для экспорта', 'error');
-                return;
-            }
 
-            // For now, just show a notification
-            // In a real implementation, this would trigger the actual export
-            showNotification('Функция экспорта будет реализована в следующей версии', 'warning');
-        }
 
         function showNotification(message, type = 'success') {
             const notification = document.getElementById('notification');
@@ -1210,6 +1934,280 @@
                 hideLoadingInPanel('available-fields');
             }
         }
+
+        // ===== PROGRESS TRACKING FUNCTIONS =====
+
+        // Connect to WebSocket for real-time progress updates
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/progress`;
+
+            updateConnectionStatus('connecting');
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = function() {
+                console.log('WebSocket connected');
+                updateConnectionStatus('connected');
+                reconnectAttempts = 0;
+
+                // Send ping to keep connection alive
+                setInterval(() => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(JSON.stringify({type: 'ping'}));
+                    }
+                }, 30000);
+            };
+
+            websocket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            websocket.onclose = function() {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus('disconnected');
+
+                // Attempt to reconnect
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(() => {
+                        console.log(`Reconnecting... (attempt ${reconnectAttempts})`);
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                }
+            };
+
+            websocket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus('disconnected');
+            };
+        }
+
+        // Handle WebSocket messages
+        function handleWebSocketMessage(data) {
+            if (data.type === 'progress_update') {
+                updateExportProgress(data);
+            }
+        }
+
+        // Update connection status indicator
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = `connection-indicator ${status}`;
+
+            switch (status) {
+                case 'connected':
+                    statusEl.textContent = 'Подключен';
+                    break;
+                case 'connecting':
+                    statusEl.textContent = 'Подключение...';
+                    break;
+                case 'disconnected':
+                    statusEl.textContent = 'Не подключен';
+                    break;
+            }
+        }
+
+        // Load active exports from API
+        async function loadActiveExports() {
+            try {
+                const response = await fetch('/api/progress');
+                const data = await response.json();
+
+                activeExports = data.active_exports || {};
+                renderActiveExports();
+
+                // Load detailed progress for each export
+                for (const exportId of Object.keys(activeExports)) {
+                    loadExportProgress(exportId);
+                }
+
+                // Show progress section if there are active exports
+                if (Object.keys(activeExports).length > 0) {
+                    document.getElementById('progress-section').style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error('Error loading active exports:', error);
+            }
+        }
+
+        // Load detailed progress for a specific export
+        async function loadExportProgress(exportId) {
+            try {
+                const response = await fetch(`/api/progress/${exportId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    updateExportProgress(data);
+                }
+            } catch (error) {
+                console.error(`Error loading progress for ${exportId}:`, error);
+            }
+        }
+
+        // Update export progress in the UI
+        function updateExportProgress(data) {
+            activeExports[data.export_id] = data;
+
+            // If export is completed, move to completed exports
+            if (data.status === 'completed') {
+                completedExports[data.export_id] = data;
+                if (data.spreadsheet_urls) {
+                    displayExportResults(data.spreadsheet_urls, `Экспорт завершен (ID: ${data.export_id})`);
+                }
+            }
+
+            renderActiveExports();
+        }
+
+        // Render active exports
+        function renderActiveExports() {
+            const container = document.getElementById('active-exports-container');
+
+            if (Object.keys(activeExports).length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: var(--gray); padding: 20px;">Нет активных экспортов</p>';
+                return;
+            }
+
+            container.innerHTML = Object.values(activeExports)
+                .filter(exportData => exportData.status !== 'completed')
+                .map(exportData => renderExportCard(exportData))
+                .join('');
+        }
+
+        // Render a single export card
+        function renderExportCard(exportData) {
+            const entities = exportData.entities || {};
+
+            return `
+                <div class="export-card" data-export-id="${exportData.export_id}">
+                    <div class="export-header">
+                        <div>
+                            <div class="export-id">${exportData.export_id}</div>
+                            <div style="margin-top: 5px;">
+                                <span class="export-status status-${exportData.status}">${exportData.status}</span>
+                            </div>
+                        </div>
+                        <div>
+                            ${exportData.status === 'in_progress' ?
+                                `<button class="btn-danger" onclick="cancelExport('${exportData.export_id}')" style="font-size: 0.8rem; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">Отменить</button>` :
+                                ''
+                            }
+                        </div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${exportData.overall_progress || 0}%"></div>
+                    </div>
+                    <div class="progress-text">
+                        Общий прогресс: ${(exportData.overall_progress || 0).toFixed(1)}%
+                        ${exportData.estimated_completion ?
+                            `• Завершение: ${formatTimestamp(exportData.estimated_completion)}` :
+                            ''
+                        }
+                        ${exportData.duration ?
+                            `• Время: ${formatDuration(exportData.duration)}` :
+                            ''
+                        }
+                    </div>
+
+                    <div class="entities-grid">
+                        ${Object.entries(entities).map(([entityType, entityData]) => `
+                            <div class="entity-card">
+                                <div class="entity-header">
+                                    <div class="entity-name">${entityType}</div>
+                                    <div class="export-status status-${entityData.status}">${entityData.status}</div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${entityData.progress_percentage || 0}%"></div>
+                                </div>
+                                <div class="entity-progress">
+                                    ${entityData.processed || 0}/${entityData.total || 0} записей
+                                    ${entityData.current_batch && entityData.total_batches ?
+                                        `<br>Пакет ${entityData.current_batch}/${entityData.total_batches}` :
+                                        ''
+                                    }
+                                    ${entityData.processing_rate ?
+                                        `<br>${entityData.processing_rate.toFixed(1)} записей/сек` :
+                                        ''
+                                    }
+                                </div>
+                                ${entityData.error_message ?
+                                    `<div style="color: var(--danger); font-size: 0.8rem; margin-top: 5px;">${entityData.error_message}</div>` :
+                                    ''
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Cancel an export
+        async function cancelExport(exportId) {
+            if (!confirm('Вы уверены, что хотите отменить этот экспорт?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/progress/${exportId}/cancel`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    showNotification(`Экспорт ${exportId} отменен`, 'info');
+                } else {
+                    const error = await response.json();
+                    showNotification('Ошибка отмены экспорта: ' + (error.detail || 'Unknown error'), 'error');
+                }
+
+            } catch (error) {
+                console.error('Error cancelling export:', error);
+                showNotification('Ошибка отмены экспорта: ' + error.message, 'error');
+            }
+        }
+
+        // Display export results
+        function displayExportResults(urls, title) {
+            const container = document.getElementById('export-results-container');
+
+            const resultHtml = `
+                <div class="export-results">
+                    <h4 style="margin-bottom: 10px; color: var(--dark);">${title}</h4>
+                    <div class="result-links">
+                        ${Object.entries(urls).map(([entityType, url]) =>
+                            `<a href="${url}" target="_blank" class="result-link">
+                                <i class="fas fa-external-link-alt"></i>
+                                ${entityType}
+                            </a>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = resultHtml + container.innerHTML;
+
+            // Scroll to results
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Utility functions for progress display
+        function formatTimestamp(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
+
+        function formatDuration(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes}м ${remainingSeconds}с`;
+        }
+
+        // Refresh active exports every 30 seconds as fallback
+        setInterval(loadActiveExports, 30000);
     </script>
 </body>
 </html>
