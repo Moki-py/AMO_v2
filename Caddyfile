@@ -6,3 +6,15 @@ n8n.oberonworks.ru {
       flush_interval -1
     }
 }
+tg.oberonworks.ru {
+    handle_path /static* {
+    	root * /static
+    	file_server browse
+    }
+    handle {
+		reverse_proxy 5.129.201.34:8081
+	}
+}
+chat.oberonworks.ru {
+	reverse_proxy 5.129.201.34:9017
+}
